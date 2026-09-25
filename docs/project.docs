@@ -1,7 +1,7 @@
 # ⚽ Football Analytics Platform — System Architecture & Engineering Blueprint
 
 > **Version:** 1.0.0 &nbsp;|&nbsp; **Status:** Ready for Development &nbsp;|&nbsp; **Project Type:** Full-Stack Web + Data Engineering + AI Analytics  
-> **Core Mission:** Ingest, stream, and transform event-level football data into ClickHouse, expose high-performance analytical APIs via FastAPI, and deliver an AI-powered conversational analyst with zero hallucination.  
+> **Core Mission:** Ingest, stream, and transform event-level football data into ClickHouse, expose high-performance analytical APIs via Spring Boot (Java 17), and deliver an interactive ReactJS frontend with AI-powered conversational insights with zero hallucination.  
 > ⚠️ **MANDATORY RULES FOR AI AGENTS:** All agents must read and strictly obey [AGENTS.md](./AGENTS.md) before performing any changes.
 
 ---
