@@ -1,0 +1,30 @@
+apiVersion: 1.0
+kind: Flow
+metadata:
+  name: ingestion_flow
+  description: "Ingestion pipeline for raw football data"
+spec:
+  tasks:
+    - id: fetch_statsbomb
+      type: io.kestra.core.tasks.scripts.Bash
+      bash: |
+        python data-platform/ingestion/producers.py --source statsbomb
+    - id: fetch_football_data
+      type: io.kestra.core.tasks.scripts.Bash
+      bash: |
+        python data-platform/ingestion/producers.py --source football-data
+    - id: validate
+      type: io.kestra.core.tasks.scripts.Bash
+      bash: |
+        python -m data_platform.validators.kafka_payload_validator
+    - id: write_clickhouse
+      type: io.kestra.core.tasks.scripts.Bash
+      bash: |
+        python data-platform/consumers/clickhouse_writer.py
+    - id: write_lakehouse
+      type: io.kestra.core.tasks.scripts.Bash
+      bash: |
+        python data-platform/consumers/lakehouse_writer.py
+  retry:
+    maxAttempts: 3
+    delay: PT5M

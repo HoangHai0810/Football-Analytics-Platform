@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+# Install system dependencies for pandas/pyarrow and other libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ libffi-dev libssl-dev libpq-dev build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies – split between DE and common
+COPY requirements-de.txt .
+RUN pip install --no-cache-dir -r requirements-de.txt
+
+# Copy project source (only the needed parts for the worker)
+COPY data-platform ./data-platform
+COPY infrastructure/kestra ./infrastructure/kestra
+
+# Default entrypoint (can be overridden by Kestra task)
+ENTRYPOINT ["python"]

@@ -1,0 +1,1207 @@
+# ⚽ Football Analytics Platform — System Architecture & Engineering Blueprint
+
+> **Version:** 1.0.0 &nbsp;|&nbsp; **Status:** Ready for Development &nbsp;|&nbsp; **Project Type:** Full-Stack Web + Data Engineering + AI Analytics  
+> **Core Mission:** Ingest, stream, and transform event-level football data into ClickHouse, expose high-performance analytical APIs via FastAPI, and deliver an AI-powered conversational analyst with zero hallucination.  
+> ⚠️ **MANDATORY RULES FOR AI AGENTS:** All agents must read and strictly obey [AGENTS.md](./AGENTS.md) before performing any changes.
+
+---
+
+## 📑 Table of Contents
+
+- [1. Executive Summary & Core Principles](#1-executive-summary--core-principles)
+  - [1.1. Product Vision](#11-product-vision)
+  - [1.2. The Golden Engineering Rule: Data as Source of Truth](#12-the-golden-engineering-rule-data-as-source-of-truth)
+  - [1.3. Engineering Objectives by Domain](#13-engineering-objectives-by-domain)
+  - [1.4. Target Users](#14-target-users)
+  - [1.5. Product Scope & Non-Goals](#15-product-scope--non-goals)
+- [2. System Architecture & Infrastructure](#2-system-architecture--infrastructure)
+  - [2.1. End-to-End Architecture Diagram](#21-end-to-end-architecture-diagram)
+  - [2.2. Vercel vs. Dedicated Worker Runtime Separation](#22-vercel-vs-dedicated-worker-runtime-separation)
+  - [2.3. Technology Stack Matrix](#23-technology-stack-matrix)
+  - [2.4. Monorepo Repository Structure](#24-monorepo-repository-structure)
+  - [2.5. Environments & Local Docker Compose Setup](#25-environments--local-docker-compose-setup)
+  - [2.6. Environment Variables Configuration](#26-environment-variables-configuration)
+- [3. Data Engineering & Streaming Pipelines](#3-data-engineering--streaming-pipelines)
+  - [3.1. External Data Sources](#31-external-data-sources)
+  - [3.2. Provider Abstraction Pattern](#32-provider-abstraction-pattern)
+  - [3.3. Dual Ingestion Pipelines (Batch & Incremental)](#33-dual-ingestion-pipelines-batch--incremental)
+  - [3.4. Kafka Streaming Architecture & Topics](#34-kafka-streaming-architecture--topics)
+  - [3.5. Kafka Event Message Schema](#35-kafka-event-message-schema)
+  - [3.6. Idempotency & Deduplication Strategy](#36-idempotency--deduplication-strategy)
+  - [3.7. Raw Data Lake Storage (MinIO / S3)](#37-raw-data-lake-storage-minio--s3)
+  - [3.8. Data Quality Framework & Dead Letter Queue (DLQ)](#38-data-quality-framework--dead-letter-queue-dlq)
+  - [3.9. Orchestration with Kestra](#39-orchestration-with-kestra)
+- [4. Data Warehousing & Analytical Modeling](#4-data-warehousing--analytical-modeling)
+  - [4.1. Analytical Engine: ClickHouse vs PostgreSQL](#41-analytical-engine-clickhouse-vs-postgresql)
+  - [4.2. Star Schema Data Model](#42-star-schema-data-model)
+  - [4.3. Dimension Tables Schema](#43-dimension-tables-schema)
+  - [4.4. Fact Tables Schema](#44-fact-tables-schema)
+  - [4.5. Normalized Event Taxonomy](#45-normalized-event-taxonomy)
+  - [4.6. Analytical Metrics Specification](#46-analytical-metrics-specification)
+  - [4.7. Data Transformations with Python & dbt](#47-data-transformations-with-python--dbt)
+- [5. Backend API & Platform Services](#5-backend-api--platform-services)
+  - [5.1. Architecture: Modular Monolith (FastAPI)](#51-architecture-modular-monolith-fastapi)
+  - [5.2. RESTful API Endpoints](#52-restful-api-endpoints)
+  - [5.3. Standard API Response Envelopes](#53-standard-api-response-envelopes)
+  - [5.4. Multi-Tier Caching Strategy (Redis)](#54-multi-tier-caching-strategy-redis)
+  - [5.5. Rate Limiting & Platform Security](#55-rate-limiting--platform-security)
+  - [5.6. Authentication Strategy](#56-authentication-strategy)
+- [6. Frontend Experience & Visualizations](#6-frontend-experience--visualizations)
+  - [6.1. Core UX Principles](#61-core-ux-principles)
+  - [6.2. Route Hierarchy & Page Breakdown](#62-route-hierarchy--page-breakdown)
+  - [6.3. Football Visualizations: Pitch & Shot Maps](#63-football-visualizations-pitch--shot-maps)
+  - [6.4. Search Architecture](#64-search-architecture)
+  - [6.5. End-to-End User Analysis Journey](#65-end-to-end-user-analysis-journey)
+- [7. AI Football Analyst (LangGraph)](#7-ai-football-analyst-langgraph)
+  - [7.1. Conversational Agent Architecture](#71-conversational-agent-architecture)
+  - [7.2. Analytics Toolset for LLM](#72-analytics-toolset-for-llm)
+  - [7.3. Strict Anti-Hallucination Guardrails](#73-strict-anti-hallucination-guardrails)
+  - [7.4. Execution Trace Walkthrough](#74-execution-trace-walkthrough)
+  - [7.5. Advanced Analytics & Machine Learning Roadmap](#75-advanced-analytics--machine-learning-roadmap)
+- [8. Reliability, Testing & Observability](#8-reliability-testing--observability)
+  - [8.1. Performance & Latency Budgets](#81-performance--latency-budgets)
+  - [8.2. Comprehensive Testing Strategy](#82-comprehensive-testing-strategy)
+  - [8.3. Observability & Monitoring Dashboard](#83-observability--monitoring-dashboard)
+  - [8.4. CI/CD Deployment Automation](#84-cicd-deployment-automation)
+- [9. Project Execution & CV Highlights](#9-project-execution--cv-highlights)
+  - [9.1. Phased Development Milestones](#91-phased-development-milestones)
+  - [9.2. Implementation Order Rationale](#92-implementation-order-rationale)
+  - [9.3. Sprint 1 Execution Plan (Day 1 – Day 7)](#93-sprint-1-execution-plan-day-1--day-7)
+  - [9.4. Feature Definition of Done (DoD)](#94-feature-definition-of-done-dod)
+  - [9.5. Minimum Viable Product (MVP) Acceptance Criteria](#95-minimum-viable-product-mvp-acceptance-criteria)
+  - [9.6. Portfolio & CV Positioning](#96-portfolio--cv-positioning)
+
+---
+
+# 1. Executive Summary & Core Principles
+
+## 1.1. Product Vision
+
+The **Football Analytics Platform** is a web-based data application designed to deliver multi-layered football intelligence across competitions, seasons, matches, teams, players, and individual pitch events.
+
+Unlike generic live-score dashboards that present static tabular tallies, this platform establishes a robust, event-driven data engineering pipeline:
+
+```text
+[External Data APIs] ──► [Ingestion Workers] ──► [Kafka Streaming] ──► [MinIO (Raw Data Lake)]
+                                                                                │
+[AI Football Analyst] ◄── [Next.js App] ◄── [FastAPI API] ◄── [ClickHouse] ◄───┘ (ETL / dbt)
+```
+
+> **Target Identity:**  
+> A dedicated analytical intelligence suite for football—merging modern data warehouse speeds with deterministic AI insights.
+
+---
+
+## 1.2. The Golden Engineering Rule: Data as Source of Truth
+
+The foundational design tenet of the entire platform is:
+
+```
+┌────────────────────────────────────────────────────────┐
+│             CLICKHOUSE ANALYTICAL DATABASE             │
+│            (Single Authoritative Data Truth)           │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│               DETERMINISTIC ANALYTICS API              │
+│            (Validated SQL Queries & Bounds)            │
+└──────────────────────────┬─────────────────────────────┘
+                           │
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│                   AI FOOTBALL ANALYST                  │
+│       (Interprets, Synthesizes & Communicates)         │
+└────────────────────────────────────────────────────────┘
+```
+
+> [!IMPORTANT]
+> **Zero Tolerance for Hallucinations:**  
+> The system must always be capable of answering: *"Where did this exact number come from?"*  
+> The LLM is **never** permitted to generate freeform SQL directly against the analytical database, nor invent statistical metrics. All numerical claims originate from strictly validated tool calls.
+
+---
+
+## 1.3. Engineering Objectives by Domain
+
+| Domain | Key Capabilities Demonstrated |
+| :--- | :--- |
+| **Backend Engineering** | REST API clean architecture, modular monolith, Pydantic validation, JWT auth, Redis multi-tier caching, query optimization, rate limiting, structured logging, background tasks. |
+| **Data Engineering** | Multi-source ingestion, event streaming (Kafka/Redpanda), raw lake storage (S3/MinIO), idempotency, ClickHouse OLAP modeling, dbt SQL transformations, data quality testing, DLQ, Kestra orchestration. |
+| **AI Engineering** | LangGraph agentic workflows, deterministic tool-calling, intent recognition, contextual synthesis, strict hallucination guardrails, conversational state management. |
+| **Frontend Engineering** | Next.js App Router, SSR/CSR balance, Tailwind CSS, shadcn/ui design system, Recharts, SVG/D3 dynamic pitch visualization (shot maps & heatmaps), responsive UX. |
+
+---
+
+## 1.4. Target Users
+
+- **Casual Football Enthusiasts:** Seeking deep answers to player form, season-over-season progression, and squad attack profiles.
+- **Data-Oriented Football Fans:** Requiring advanced metrics (xG, xA, PPDA, pass completion under pressure, shot locations, progressive metrics).
+- **Recruiters & Engineers:** Assessing a clean production-grade architecture spanning event streaming, data warehousing, and AI orchestration.
+
+---
+
+## 1.5. Product Scope & Non-Goals
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                 IN SCOPE                                     │
+├───────────────────────┬──────────────────────────────┬───────────────────────┤
+│ Competition & Match   │ Player & Team Analytics      │ AI & Data Platform    │
+│ • Match schedules     │ • Profiles & radar metrics   │ • Natural language Q&A│
+│ • Full lineups & score│ • Historical comparisons     │ • Kafka streaming     │
+│ • Shot & pass events  │ • Interactive pitch shot maps│ • ClickHouse OLAP     │
+└───────────────────────┴──────────────────────────────┴───────────────────────┘
+```
+
+> [!WARNING]
+> **Explicit Non-Goals for Initial Release:**  
+> Live match video streaming, betting/gambling integrations, social networking feeds, user-generated blogs, fantasy football games, real-time millisecond ball tracking, complex proprietary ML xG training (use provider xG first).
+
+---
+
+# 2. System Architecture & Infrastructure
+
+## 2.1. End-to-End Architecture Diagram
+
+```
+                              ┌─────────────────────────────────────────┐
+                              │          External Data Sources          │
+                              │  football-data.org  |  StatsBomb Open   │
+                              └────────────────────┬────────────────────┘
+                                                   │
+                                                   ▼
+                              ┌─────────────────────────────────────────┐
+                              │            Ingestion Workers            │
+                              │         (Python Provider SDKs)          │
+                              └────────────────────┬────────────────────┘
+                                                   │
+                                                   ▼
+                              ┌─────────────────────────────────────────┐
+                              │              Apache Kafka               │
+                              │         (Redpanda for Local Dev)        │
+                              └─────┬──────────────┬──────────────┬─────┘
+                                    │              │              │
+                   ┌────────────────┘              │              └────────────────┐
+                   ▼                               ▼                               ▼
+       ┌───────────────────────┐       ┌───────────────────────┐       ┌───────────────────────┐
+       │   Raw Object Storage  │       │  Transformation Worker│       │  Data Quality / DLQ   │
+       │    (MinIO / AWS S3)   │       │   (Python + dbt core) │       │   (Schema Validation) │
+       └───────────────────────┘       └───────────┬───────────┘       └───────────────────────┘
+                                                   │
+                                                   ▼
+                                       ┌───────────────────────┐
+                                       │      ClickHouse       │
+                                       │  (Analytical Star DB) │
+                                       └───────────┬───────────┘
+                                                   │
+                                                   ▼
+                                       ┌───────────────────────┐
+                                       │      FastAPI API      │
+                                       │   (Modular Monolith)  │
+                                       └─────┬───────────┬─────┘
+                                             │           │
+                             ┌───────────────┘           └───────────────┐
+                             ▼                                           ▼
+                 ┌───────────────────────┐                   ┌───────────────────────┐
+                 │     Redis Cache       │                   │   LangGraph AI Agent  │
+                 │  (Fast-access cache)  │                   │    (LLM Analytics)    │
+                 └───────────┬───────────┘                   └───────────┬───────────┘
+                             │                                           │
+                             └───────────────────┬───────────────────────┘
+                                                 │
+                                                 ▼
+                                     ┌───────────────────────┐
+                                     │   Next.js Web / BFF   │
+                                     │    (Hosted on Vercel) │
+                                     └───────────┬───────────┘
+                                                 │
+                                                 ▼
+                                     ┌───────────────────────┐
+                                     │       End User        │
+                                     │    (Desktop/Mobile)   │
+                                     └───────────────────────┘
+```
+
+---
+
+## 2.2. Vercel vs. Dedicated Worker Runtime Separation
+
+To prevent timeout failures, memory limits, and socket leakage, workloads are strictly partitioned:
+
+```
+┌────────────────────────────────────────────┐    ┌────────────────────────────────────────────┐
+│         VERCEL APPLICATION EDGE            │    │         DEDICATED COMPUTE WORKERS          │
+│    (Next.js App, Serverless BFF & CDN)     │    │   (Railway, Render, Fly.io, or AWS ECS)    │
+├────────────────────────────────────────────┤    ├────────────────────────────────────────────┤
+│ • Next.js React Server Components & UI     │    │ • Continuous Kafka consumer loops          │
+│ • Server-Side Rendering (SSR) & Static CDN │    │ • Heavy, long-running ETL & backfill jobs  │
+│ • Client Session & Auth callbacks          │    │ • Ingestion crawlers & external API polling│
+│ • Short-lived REST & AI streaming proxies  │    │ • ClickHouse bulk stream ingestion         │
+└────────────────────────────────────────────┘    └────────────────────────────────────────────┘
+```
+
+---
+
+## 2.3. Technology Stack Matrix
+
+| Tier | Primary Technology | Justification & Purpose |
+| :--- | :--- | :--- |
+| **Web Frontend** | Next.js 15, TypeScript, React 19 | SSR/SSG flexibility, modern React Server Components, developer velocity. |
+| **UI Design System** | Tailwind CSS + shadcn/ui | Modern, responsive dark-mode aesthetics with accessible headless primitives. |
+| **Visualizations** | Recharts + SVG / D3.js | Interactive trend charts, pitch radar diagrams, and coordinate-precise shot maps. |
+| **Backend Framework** | FastAPI (Python 3.11+) | Asynchronous execution, native Pydantic OpenAPI docs, rich data ecosystem. |
+| **Transactional DB** | PostgreSQL 16 | Relational consistency for users, permissions, saved searches, and metadata. |
+| **Analytical DB** | ClickHouse | Columnar OLAP engine capable of querying millions of events with sub-second latency. |
+| **In-Memory Cache** | Redis 7 | API response caching, rate limiting tokens, and temporary AI conversation states. |
+| **Event Streaming** | Apache Kafka / Redpanda | Decoupled streaming pipelines, durable message logs, and replay capabilities. |
+| **Raw Storage** | MinIO (local) / S3 (cloud) | Immutable bronze data lake preserving original JSON payloads. |
+| **Transformations** | Python + dbt | Python for data normalization; dbt for modeling, SQL DAGs, and data tests. |
+| **Orchestration** | Kestra | Declarative workflow runner for batch ingestion, daily syncs, and aggregate refreshes. |
+| **AI Orchestration** | LangGraph + OpenAI / Claude | Deterministic state graph, tool call loops, and conversational memory. |
+
+---
+
+## 2.4. Monorepo Repository Structure
+
+```text
+football-analytics/
+├── apps/
+│   ├── web/                         # Next.js frontend application
+│   │   ├── app/                     # App router pages & layouts
+│   │   ├── components/              # Shared UI & pitch visualization components
+│   │   ├── lib/                     # Client utilities, API fetchers, types
+│   │   └── public/                  # Static assets (badges, pitch SVG textures)
+│   └── api/                         # FastAPI application (Modular Monolith)
+│       ├── app/
+│       │   ├── api/v1/              # Endpoint route handlers
+│       │   ├── core/                # Config, logging, security, dependencies
+│       │   ├── domain/              # Domain entities & business contracts
+│       │   ├── services/            # Business logic orchestration
+│       │   ├── repositories/        # Database access (PostgreSQL & ClickHouse)
+│       │   ├── schemas/             # Pydantic request/response models
+│       │   └── main.py              # Application entrypoint
+│       └── tests/                   # Backend unit and integration tests
+├── data-platform/                   # Streaming & Data Engineering pipelines
+│   ├── ingestion/                   # Source collectors & scheduled fetchers
+│   ├── consumers/                   # Kafka consumer workers
+│   ├── transformers/                # Normalization & enrichment logic
+│   ├── validators/                  # Schema integrity & bounds checking
+│   └── providers/                   # External API client abstractions
+├── dbt/                             # dbt transformation models for ClickHouse
+│   ├── models/
+│   │   ├── staging/                 # Cleaned source views
+│   │   ├── intermediate/            # Session/match normalized aggregates
+│   │   └── marts/                   # Star-schema dimensions and facts
+│   ├── tests/                       # SQL integrity & balance assertions
+│   └── macros/                      # Reusable analytical calculations
+├── ai/                              # AI Football Analyst service
+│   ├── graphs/                      # LangGraph state machine definitions
+│   ├── tools/                       # Analytical retrieval tools for LLM
+│   ├── prompts/                     # Structured prompt templates & system guardrails
+│   └── tests/                       # LLM output consistency & tool validation tests
+├── infrastructure/                  # Infrastructure as Code & configurations
+│   ├── docker/                      # Container Dockerfiles
+│   ├── kafka/                       # Topic creation scripts & configs
+│   ├── clickhouse/                  # Initial DDL migrations & tables
+│   ├── postgres/                    # Database migrations
+│   └── kestra/                      # Ingestion & maintenance flows
+├── docker-compose.yml               # Complete local development stack
+├── Makefile                         # Developer ergonomics & lifecycle commands
+└── README.md                        # Project onboarding guide
+```
+
+---
+
+## 2.5. Environments & Local Docker Compose Setup
+
+```
+┌────────────────────┐      ┌────────────────────┐      ┌────────────────────┐
+│       LOCAL        │      │      STAGING       │      │     PRODUCTION     │
+├────────────────────┤      ├────────────────────┤      ├────────────────────┤
+│ • Docker Compose   │      │ • Managed DBs      │      │ • Vercel Edge Web  │
+│ • Redpanda (Kafka) │ ───► │ • Small workers    │ ───► │ • Managed Kafka    │
+│ • MinIO (S3 API)   │      │ • Branch deployments│     │ • ClickHouse Cloud │
+│ • Local ClickHouse │      │ • Staging buckets  │      │ • Scalable Workers │
+└────────────────────┘      └────────────────────┘      └────────────────────┘
+```
+
+The local development stack is managed via Docker Compose:
+- **ClickHouse:** Ports `8123` (HTTP) / `9000` (Native)
+- **PostgreSQL:** Port `5432`
+- **Redis:** Port `6379`
+- **Redpanda (Kafka compatible):** Port `9092` (Console on `8080`)
+- **MinIO:** Port `9000` (Console on `9001`)
+- **Kestra:** Port `8081`
+
+---
+
+## 2.6. Environment Variables Configuration
+
+```env
+# Application Runtime
+ENVIRONMENT=local                    # local | staging | production
+DEBUG=true
+LOG_LEVEL=INFO
+
+# Relational Database (PostgreSQL)
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/football_app
+
+# Analytical Warehouse (ClickHouse)
+CLICKHOUSE_URL=http://localhost:8123
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=clickhouse_dev
+CLICKHOUSE_DB=football_analytics
+
+# In-Memory Cache (Redis)
+REDIS_URL=redis://localhost:6379/0
+
+# Event Streaming (Kafka / Redpanda)
+KAFKA_BROKERS=localhost:9092
+KAFKA_SCHEMA_REGISTRY_URL=http://localhost:8081
+KAFKA_CLIENT_ID=football-platform-core
+
+# Raw Object Storage (MinIO / S3)
+S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET=football-lake
+S3_REGION=us-east-1
+
+# External Football APIs
+FOOTBALL_DATA_API_KEY=your_football_data_token_here
+STATSBOMB_AUTH_KEY=optional_enterprise_token
+
+# AI Analyst Engine
+OPENAI_API_KEY=sk-proj-...
+AI_MODEL_NAME=gpt-4o-mini
+```
+
+---
+
+# 3. Data Engineering & Streaming Pipelines
+
+## 3.1. External Data Sources
+
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│        football-data.org        │       │       StatsBomb Open Data       │
+├─────────────────────────────────┤       ├─────────────────────────────────┤
+│ • Competitions & Seasons        │       │ • High-granularity pitch events │
+│ • Fixtures, Results & Standings │       │ • (x, y) shot & pass coordinates│
+│ • Squad rosters & basic player  │       │ • Lineups, freeze frames & xG   │
+│   biographical attributes       │       │ • Pressures, duels & recoveries │
+└─────────────────────────────────┘       └─────────────────────────────────┘
+```
+
+---
+
+## 3.2. Provider Abstraction Pattern
+
+To avoid tight coupling to external vendor payloads, all source clients implement a unified abstract base class:
+
+```python
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List
+
+class FootballDataProvider(ABC):
+    """Abstract interface decoupling ingestion logic from vendor-specific APIs."""
+
+    @abstractmethod
+    async def get_matches(self, competition_id: str, season: str) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def get_teams(self, competition_id: str, season: str) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    async def get_events(self, match_id: str) -> List[Dict[str, Any]]:
+        pass
+```
+
+---
+
+## 3.3. Dual Ingestion Pipelines (Batch & Incremental)
+
+```
+[Initial Batch Load]     Historical Files ──► Ingestion Worker ──► S3 Lake ──► Bulk Stream ──► ClickHouse
+[Daily / Incremental]    Scheduler (Cron) ──► Poller ──► Kafka Topic ──► Micro-batch ETL ──► ClickHouse Upsert
+```
+
+---
+
+## 3.4. Kafka Streaming Architecture & Topics
+
+| Topic Name | Purpose | Partitioning Key | Retention |
+| :--- | :--- | :--- | :--- |
+| `football.competition.raw` | Unmodified competition JSON | `competition_id` | 30 days |
+| `football.season.raw` | Season metadata | `season_id` | 30 days |
+| `football.team.raw` | Team roster and details | `team_id` | 30 days |
+| `football.player.raw` | Player profiles | `player_id` | 30 days |
+| `football.match.raw` | Match details and scores | `match_id` | 30 days |
+| `football.event.raw` | Granular pitch events | `match_id` | 14 days |
+| `football.match.normalized` | Validated, normalized match records | `match_id` | 7 days |
+| `football.event.normalized` | Standardized event coordinates & types | `match_id` | 7 days |
+| `football.player_stats.updated`| Aggregated player match performance | `player_id` | 7 days |
+| `football.team_stats.updated`  | Aggregated team season statistics | `team_id` | 7 days |
+| `football.dlq` | Invalid, unparsable, or corrupt records | `source` | 90 days |
+
+---
+
+## 3.5. Kafka Event Message Schema
+
+Every message published to Kafka conforms to an immutable envelope:
+
+```json
+{
+  "event_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "event_type": "football.event.raw",
+  "source": "statsbomb",
+  "schema_version": 1,
+  "occurred_at": "2026-09-24T18:45:00Z",
+  "ingested_at": "2026-09-24T18:45:05Z",
+  "payload": {
+    "match_id": 3890251,
+    "event_idx": 451,
+    "type": "Shot",
+    "player_id": 5503,
+    "location": [94.2, 38.5]
+  }
+}
+```
+
+---
+
+## 3.6. Idempotency & Deduplication Strategy
+
+To guarantee that duplicate message deliveries never skew metrics:
+1. **Deterministic Unique Keys:** Construct a natural primary key for every record:
+   $$\text{unique\_id} = \text{MD5}(\text{source} + \text{":"} + \text{entity} + \text{":"} + \text{provider\_id})$$
+2. **ClickHouse ReplacingMergeTree:** When deduplicating during background merges, ClickHouse retains the latest record based on `ingested_at`.
+3. **Redis Deduplication Filter:** Workers verify key existence for high-frequency streams before emitting downstream events.
+
+---
+
+## 3.7. Raw Data Lake Storage (MinIO / S3)
+
+All raw API responses are persisted immutably prior to normalization:
+
+```text
+football-lake/
+├── raw/
+│   ├── football-data/
+│   │   └── year=2026/month=09/day=24/matches_batch_12.json.gz
+│   └── statsbomb/
+│       └── match_id=3890251/events_raw.json.gz
+├── processed/
+│   ├── parquet/matches/
+│   └── parquet/events/
+└── snapshots/
+    └── daily_aggregates_20260924.parquet
+```
+
+---
+
+## 3.8. Data Quality Framework & Dead Letter Queue (DLQ)
+
+```
+Raw Record ──► [Schema Validation] ──► [Business Range Rules] ──► [Deduplication] ──► Normalized DB
+                      │                           │
+                      └─────────────┬─────────────┘
+                                    ▼ (On Failure)
+                             [Dead Letter Queue]
+                             (Payload + Reason + TS)
+```
+
+### Critical Data Assertions:
+- **Referential Integrity:** `match_id`, `team_id`, and `player_id` must match dimension registers.
+- **Coordinate Boundaries:** Pitch coordinates must satisfy $0 \le x \le 120$ and $0 \le y \le 80$.
+- **Statistical Ranges:** $0.0 \le \text{xG} \le 1.0$; $\text{minutes\_played} \ge 0$; $\text{attendance} \ge 0$.
+
+---
+
+## 3.9. Orchestration with Kestra
+
+Daily pipelines run on automated schedules via declarative YAML flows in Kestra:
+
+```
+[1. Fetch API] ──► [2. Validate Schemas] ──► [3. Sink to Kafka & S3] ──► [4. Trigger dbt] ──► [5. Refresh Cache]
+```
+
+---
+
+# 4. Data Warehousing & Analytical Modeling
+
+## 4.1. Analytical Engine: ClickHouse vs PostgreSQL
+
+```
+┌──────────────────────────────────────────────┐    ┌──────────────────────────────────────────────┐
+│           CLICKHOUSE (OLAP ENGINE)           │    │          POSTGRESQL (OLTP ENGINE)            │
+├──────────────────────────────────────────────┤    ├──────────────────────────────────────────────┤
+│ • Event tables (millions of rows)            │    │ • User authentication & profile records      │
+│ • Aggregations over seasons and match sets   │    │ • Bookmarked comparisons & alerts            │
+│ • Sub-second analytical radar & trend stats  │    │ • Application feature flags & UI settings    │
+│ • Columnar compression & vectorized execution│    │ • ACID transaction state management          │
+└──────────────────────────────────────────────┘    └────────────────────────────────────────────┘
+```
+
+---
+
+## 4.2. Star Schema Data Model
+
+```
+                         ┌───────────────────────┐
+                         │    dim_competition    │
+                         └───────────┬───────────┘
+                                     │
+                                     ▼
+                         ┌───────────────────────┐
+                         │      dim_season       │
+                         └───────────┬───────────┘
+                                     │
+                 ┌───────────────────┼───────────────────┐
+                 │                   │                   │
+                 ▼                   ▼                   ▼
+       ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+       │     dim_team     │ │    dim_match     │ │    dim_player    │
+       └─────────┬────────┘ └────────┬─────────┘ └────────┬─────────┘
+                 │                   │                    │
+                 │      ┌────────────┴────────────┐       │
+                 └─────►│   fact_player_match     │◄──────┘
+                        │   fact_match            │
+                        │   fact_event            │
+                        └─────────────────────────┘
+```
+
+---
+
+## 4.3. Dimension Tables Schema
+
+### `dim_competition`
+```sql
+CREATE TABLE dim_competition (
+    competition_id UInt32,
+    name String,
+    country String,
+    type LowCardinality(String),
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY competition_id;
+```
+
+### `dim_season`
+```sql
+CREATE TABLE dim_season (
+    season_id UInt32,
+    competition_id UInt32,
+    name String,
+    start_date Date,
+    end_date Date,
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (competition_id, season_id);
+```
+
+### `dim_team`
+```sql
+CREATE TABLE dim_team (
+    team_id UInt32,
+    name String,
+    country String,
+    stadium String,
+    logo_url String,
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY team_id;
+```
+
+### `dim_player`
+```sql
+CREATE TABLE dim_player (
+    player_id UInt32,
+    name String,
+    date_of_birth Nullable(Date),
+    nationality String,
+    position LowCardinality(String),
+    preferred_foot LowCardinality(String),
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY player_id;
+```
+
+### `dim_match`
+```sql
+CREATE TABLE dim_match (
+    match_id UInt64,
+    competition_id UInt32,
+    season_id UInt32,
+    home_team_id UInt32,
+    away_team_id UInt32,
+    match_date DateTime,
+    status LowCardinality(String),
+    updated_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (season_id, match_date, match_id);
+```
+
+---
+
+## 4.4. Fact Tables Schema
+
+### `fact_match`
+```sql
+CREATE TABLE fact_match (
+    match_id UInt64,
+    home_team_id UInt32,
+    away_team_id UInt32,
+    home_score UInt8,
+    away_score UInt8,
+    home_xg Float32,
+    away_xg Float32,
+    attendance UInt32,
+    duration UInt16,
+    ingested_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(ingested_at)
+ORDER BY match_id;
+```
+
+### `fact_player_match`
+```sql
+CREATE TABLE fact_player_match (
+    match_id UInt64,
+    player_id UInt32,
+    team_id UInt32,
+    minutes UInt8,
+    goals UInt8,
+    assists UInt8,
+    shots UInt8,
+    shots_on_target UInt8,
+    passes UInt16,
+    key_passes UInt8,
+    xg Float32,
+    xa Float32,
+    tackles UInt8,
+    interceptions UInt8,
+    duels UInt8,
+    pressures UInt16,
+    ingested_at DateTime DEFAULT now()
+) ENGINE = ReplacingMergeTree(ingested_at)
+ORDER BY (player_id, match_id);
+```
+
+### `fact_event`
+```sql
+CREATE TABLE fact_event (
+    event_id UUID,
+    match_id UInt64,
+    player_id UInt32,
+    team_id UInt32,
+    event_type LowCardinality(String),
+    minute UInt8,
+    second UInt8,
+    x Float32,
+    y Float32,
+    end_x Nullable(Float32),
+    end_y Nullable(Float32),
+    outcome LowCardinality(String),
+    ingested_at DateTime DEFAULT now()
+) ENGINE = MergeTree()
+PARTITION BY toYYYYMM(ingested_at)
+ORDER BY (match_id, event_type, minute, second);
+```
+
+---
+
+## 4.5. Normalized Event Taxonomy
+
+To eliminate terminology differences between providers (e.g., StatsBomb vs Opta), events are standardized into a canonical enum:
+
+```text
+PASS          SHOT          CARRY         DUEL          TACKLE
+INTERCEPTION  PRESSURE      FOUL          OFFSIDE       SUBSTITUTION
+CARD          BALL_RECOVERY CLEARANCE
+```
+
+---
+
+## 4.6. Analytical Metrics Specification
+
+### Player Metrics Suite
+- **Scoring & Threat:** Goals, Assists, xG (Expected Goals), xA (Expected Assists), Shots, Shots on Target.
+- **Normalized Rates:** Goals/90, Assists/90, xG/90, xA/90, Shots/90.
+- **Playmaking & Progression:** Key Passes, Pass Completion Rate (%), Progressive Passes, Progressive Carries, Touches.
+- **Defensive & Workrate:** Tackles Won, Interceptions, Ground/Aerial Duels Won, Pressures, Minutes Played.
+
+### Team Metrics Suite
+- **Offense & Defense:** Goals Scored, Goals Conceded, Total xG, Expected Goals Against (xGA).
+- **Control & Possession:** Possession %, Pass Completion %, Progressive Passes.
+- **Pressing & Structure:** PPDA (Passes Allowed Per Defensive Action), Set-piece Goals, Fast-break / Counter-attacking Goals.
+
+---
+
+## 4.7. Data Transformations with Python & dbt
+
+- **Python Workers:** Perform heavy string normalization, regex parsing, coordinate system conversions, and raw JSON decoding.
+- **dbt Models:** Manage SQL DAG transformations in ClickHouse:
+  - `stg_events` ──► Cleaned and deduplicated events.
+  - `int_player_matches` ──► Calculated rolling 90-minute metrics.
+  - `mart_player_season_stats` ──► Pre-aggregated table for sub-50ms API queries.
+
+---
+
+# 5. Backend API & Platform Services
+
+## 5.1. Architecture: Modular Monolith (FastAPI)
+
+```text
+api/app/
+├── api/v1/          # HTTP request handlers & routing
+├── domain/          # Pure entity models & business interfaces
+├── services/        # Orchestration layer (caching, data fetch)
+├── repositories/    # Direct ClickHouse & Postgres query implementations
+└── schemas/         # Pydantic serialization models
+```
+
+> **Design Choice:**  
+> Start with a clean **modular monolith**. Microservices add excessive network complexity and deployment overhead at this phase.
+
+---
+
+## 5.2. RESTful API Endpoints
+
+```
+COMPETITIONS & SEASONS
+  GET  /api/v1/competitions
+  GET  /api/v1/competitions/{id}
+  GET  /api/v1/seasons
+  GET  /api/v1/seasons/{id}
+
+MATCHES
+  GET  /api/v1/matches
+  GET  /api/v1/matches/{id}
+
+TEAMS
+  GET  /api/v1/teams
+  GET  /api/v1/teams/{id}
+  GET  /api/v1/teams/{id}/stats
+
+PLAYERS
+  GET  /api/v1/players
+  GET  /api/v1/players/{id}
+  GET  /api/v1/players/{id}/stats
+  GET  /api/v1/players/{id}/shots
+  GET  /api/v1/players/{id}/passing
+  GET  /api/v1/players/{id}/heatmap
+  GET  /api/v1/players/compare?ids=123,456&season=2025
+
+AI ANALYST
+  POST /api/v1/ai/analyze
+```
+
+---
+
+## 5.3. Standard API Response Envelopes
+
+### Success Envelope
+```json
+{
+  "data": {
+    "player_id": 1024,
+    "name": "Kylian Mbappé",
+    "season": "2024/2025",
+    "metrics": {
+      "goals": 24,
+      "xg": 21.8,
+      "assists": 8,
+      "xa": 6.5
+    }
+  },
+  "meta": {
+    "execution_time_ms": 14.2,
+    "cached": true,
+    "version": "v1"
+  }
+}
+```
+
+### Error Envelope
+```json
+{
+  "error": {
+    "code": "PLAYER_NOT_FOUND",
+    "message": "Player with id 99999 was not found in active registries.",
+    "details": {}
+  }
+}
+```
+
+---
+
+## 5.4. Multi-Tier Caching Strategy (Redis)
+
+```
+┌─────────────────────────────────┬──────────────────┬─────────────────────────────┐
+│ Cache Tier                      │ TTL              │ Example Key Pattern         │
+├─────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ Heavy (Static & Historical)     │ 24 Hours         │ player:1024:overview        │
+│                                 │                  │ season:2024:teams           │
+├─────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ Moderate (Recent Aggregates)    │ 1 – 6 Hours      │ player:1024:2025:stats      │
+│                                 │                  │ match:3890251:summary       │
+├─────────────────────────────────┼──────────────────┼─────────────────────────────┤
+│ Light (AI Query Deduplication)  │ 15 – 30 Minutes  │ ai:cache:<sha256_hash>      │
+└─────────────────────────────────┴──────────────────┴─────────────────────────────┘
+```
+
+---
+
+## 5.5. Rate Limiting & Platform Security
+
+- **Rate Limits:** General analytics endpoints allow `100 req/min/user`. AI conversational endpoints enforce `20 req/min/user` to protect compute and LLM token budgets.
+- **SQL Injection Defense:** All ClickHouse queries strictly use parameterized queries. Arbitrary LLM-generated SQL strings are blocked at the architecture level.
+- **Network Boundaries:** Internal databases (ClickHouse, Postgres, Redis) are kept within private VPC networks, with public traffic routed only through HTTPS/TLS endpoints.
+
+---
+
+## 5.6. Authentication Strategy
+
+- **Phase 1 (MVP):** Public analytics exploration. No sign-in required for core statistics, radar charts, and basic AI queries.
+- **Phase 2:** Authentication powered by **Auth.js** (NextAuth) for personalized features:
+  - Saved player comparison dashboards.
+  - Custom alert thresholds.
+  - Conversational history persistence for the AI Analyst.
+
+---
+
+# 6. Frontend Experience & Visualizations
+
+## 6.1. Core UX Principles
+
+$$\text{Search} \;\longrightarrow\; \text{Analyze} \;\longrightarrow\; \text{Compare} \;\longrightarrow\; \text{Synthesize (AI)}$$
+
+The platform prioritizes direct analytical insight over endless tabular browsing. Every page delivers interactive visual graphics backed by clean metrics.
+
+---
+
+## 6.2. Route Hierarchy & Page Breakdown
+
+```
+/                             # Analytical Landing Page & Global Search
+├── /competitions             # Competition overview & standings
+│   └── /[id]                 # Competition detail & table
+├── /matches                  # Match listings & fixture browser
+│   └── /[id]                 # Match center: timeline, lineups, event stats
+├── /teams                    # Team directory
+│   └── /[id]                 # Team profile, squad, tactical radar, shot map
+├── /players                  # Player directory
+│   └── /[id]                 # Player profile, radar charts, shot map, AI summary
+├── /compare                  # Side-by-side player & team comparison studio
+└── /ai                       # Dedicated AI Football Analyst chat workspace
+```
+
+---
+
+## 6.3. Football Visualizations: Pitch & Shot Maps
+
+Visualizations render dynamically on the client via SVG and D3:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                   FOOTBALL PITCH (SVG)                   │
+│                                                          │
+│     ┌────┐                      (•) Penalty Spot ┌────┐  │
+│     │    │                                       │  o │  │
+│     │    │                                       │ o  │  │
+│     │    │                                       │    │  │
+│     └────┘                                       └────┘  │
+│                                                          │
+│   Legend:  o Goal (xG: 0.72)    x Missed Shot (xG: 0.12) │
+└──────────────────────────────────────────────────────────┘
+```
+
+> [!NOTE]
+> **Coordinate Contract:**  
+> The backend delivers normalized coordinates on a standardized pitch dimension ($0 \le x \le 120$, $0 \le y \le 80$).  
+> The frontend SVG maps these values dynamically to responsive viewBox dimensions without distortion.
+
+---
+
+## 6.4. Search Architecture
+
+- **MVP:** Fast ILIKE / prefix indexing in PostgreSQL and ClickHouse across players, teams, and competitions.
+- **Future:** Transition to OpenSearch / Meilisearch for phonetic typo tolerance and natural language semantic football search.
+
+---
+
+## 6.5. End-to-End User Analysis Journey
+
+```
+1. Search "Mbappé"
+       │
+       ▼
+2. Navigate to Player Profile (/players/1024)
+       │
+       ▼
+3. Filter by Season: 2024/2025
+       │
+       ▼
+4. Examine Metric Radar & Interactive Pitch Shot Map
+       │
+       ▼
+5. Click "Add to Comparison" ──► Select "Vinícius Júnior"
+       │
+       ▼
+6. View Comparison Dashboard (/compare?ids=1024,1032)
+       │
+       ▼
+7. Launch Query in AI Analyst:
+   "Why did Mbappé's xG per 90 change compared to last season?"
+       │
+       ▼
+8. Agent retrieves structured data and presents verified insights
+```
+
+---
+
+# 7. AI Football Analyst (LangGraph)
+
+## 7.1. Conversational Agent Architecture
+
+```
+User Query: "Why did Player A score fewer goals this season?"
+                           │
+                           ▼
+             ┌───────────────────────────┐
+             │    LangGraph Supervisor   │
+             │     (Intent Detection)    │
+             └─────────────┬─────────────┘
+                           │
+                           ▼
+             ┌───────────────────────────┐
+             │      Tool Calling Node    │
+             │   (Deterministic Params)  │
+             └─────────────┬─────────────┘
+                           │
+        ┌──────────────────┴──────────────────┐
+        ▼                                     ▼
+[get_player_season_stats(A, 2024)]   [get_player_season_stats(A, 2025)]
+        │                                     │
+        └──────────────────┬──────────────────┘
+                           │ (Structured JSON Data)
+                           ▼
+             ┌───────────────────────────┐
+             │   ClickHouse Analytics    │
+             └─────────────┬─────────────┘
+                           │
+                           ▼
+             ┌───────────────────────────┐
+             │     Synthesis Node        │
+             │   (LLM Cites Statistics)  │
+             └─────────────┬─────────────┘
+                           │
+                           ▼
+              Verified Natural Language Report
+```
+
+---
+
+## 7.2. Analytics Toolset for LLM
+
+The agent queries the analytical database through typed tools:
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def get_player_season_stats(player_id: int, season_id: int) -> dict:
+    """Retrieve verified season metrics for a player (goals, xG, assists, minutes, shots)."""
+    # Executes pre-compiled, parameterized SQL against ClickHouse
+    ...
+
+@tool
+def compare_players(player_ids: list[int], season_id: int) -> dict:
+    """Compare multiple players across key 90-minute normalized metrics."""
+    ...
+
+@tool
+def get_shot_data(player_id: int, season_id: int) -> dict:
+    """Retrieve shot coordinates, xG values, and outcomes for pitch visualizations."""
+    ...
+```
+
+---
+
+## 7.3. Strict Anti-Hallucination Guardrails
+
+1. **Zero Statistical Hallucination:** The model must never invent a number, percentage, or rating.
+2. **Mandatory Grounding:** Every numerical statement must directly reference data returned by an executed tool.
+3. **Graceful Degradation:** If data is missing for a season or player, the system responds: *"Data is unavailable for this selection"* rather than guessing.
+4. **No Freeform SQL Execution:** The LLM is never given direct SQL generation privileges against ClickHouse.
+5. **Decoupled Computation:** All math (rates, averages, percentiles) is calculated in ClickHouse or the Python backend, keeping the LLM's role strictly interpretive.
+
+---
+
+## 7.4. Execution Trace Walkthrough
+
+```text
+User: "How does Haaland's finishing compare to his expected goals this year?"
+  ├── Step 1: LLM selects tool `get_player_season_stats(player_name="Erling Haaland", season=2025)`
+  ├── Step 2: Backend resolves entity ID 1102 and queries ClickHouse.
+  ├── Step 3: ClickHouse returns:
+  │           { "goals": 21, "xg": 17.4, "shots": 68, "minutes": 1820 }
+  ├── Step 4: Model processes structured difference: +3.6 goal outperformance over xG.
+  └── Step 5: Synthesizes final response:
+              "In the 2024/2025 season, Erling Haaland has scored 21 goals against an
+               expected goals (xG) tally of 17.4 across 1,820 minutes, indicating a
+               finishing outperformance of +3.6 goals."
+```
+
+---
+
+## 7.5. Advanced Analytics & Machine Learning Roadmap
+
+Following the MVP release, the platform will expand into custom ML models:
+- **Custom xG Model:** An XGBoost model trained on shot distance, angle, body part, pass origin, and defensive pressure vectors.
+- **Player Similarity Engine:** Vector embeddings derived from normalized 90-minute percentile vectors to identify statistical matches across leagues.
+
+---
+
+# 8. Reliability, Testing & Observability
+
+## 8.1. Performance & Latency Budgets
+
+| Target Layer | Metric Goal | Strategy |
+| :--- | :--- | :--- |
+| **Standard Analytics API** | $p95 < 500\text{ms}$ | ClickHouse columnar partitioning and index projections. |
+| **Cached API Requests** | $p95 < 200\text{ms}$ | Redis in-memory storage. |
+| **AI Analyst First Token** | $< 3.0\text{s}$ | Fast tool dispatch and streaming token responses. |
+
+---
+
+## 8.2. Comprehensive Testing Strategy
+
+```
+Backend Testing (pytest)
+  ├── Unit Tests: Pydantic schemas, coordinate transformers, provider normalization.
+  ├── Integration Tests: API routes, PostgreSQL transactions, ClickHouse queries.
+  └── Security Tests: Rate limiting, SQL injection rejection, authentication boundaries.
+
+Data Platform Testing
+  ├── Schema Assertions: dbt tests (not_null, unique, accepted_values).
+  └── Ingestion Tests: Mock Kafka producers/consumers, idempotency replays.
+
+AI Layer Testing
+  ├── Tool Call Correctness: Validating parameter extraction on sample queries.
+  └── Guardrail Verification: Flagging hallucinated numbers via regression test suites.
+
+Frontend Testing (Playwright)
+  └── End-to-End: Search -> Player Profile -> Pitch Shot Map -> Comparison flow.
+```
+
+---
+
+## 8.3. Observability & Monitoring Dashboard
+
+Metrics monitored via OpenTelemetry, Prometheus, and Grafana:
+- **Pipeline Health:** Kafka consumer group lag, raw ingestion throughput (records/sec), dead letter queue counts.
+- **Data Freshness:** Elapsed time since the last successful upstream sync.
+- **API Metrics:** HTTP error rates ($4xx$, $5xx$), response time distributions ($p50$, $p95$, $p99$).
+- **AI Analytics:** Token usage, tool latency, and fallback rates.
+
+---
+
+## 8.4. CI/CD Deployment Automation
+
+```text
+GitHub Actions Workflow
+  ├── 1. Code Quality: Ruff (linter/formatter) & TypeScript compile
+  ├── 2. Test Execution: pytest suite & dbt test validations
+  ├── 3. Artifact Packaging: Build Docker containers for workers
+  ├── 4. Staging Deploy: Automated deployment to preview environments
+  └── 5. Production Deploy: Vercel (Next.js) + Container Registry (Workers)
+```
+
+---
+
+# 9. Project Execution & CV Highlights
+
+## 9.1. Phased Development Milestones
+
+```
+M1: Foundation ──► M2: Ingestion ──► M3: Warehouse ──► M4: Backend ──► M5: Frontend ──► M6: AI ──► M7: Production
+```
+
+- **M1: Core Foundation:** Monorepo configuration, Docker Compose, ClickHouse, Postgres, Redis, Kafka local setup.
+- **M2: Ingestion Engine:** Provider abstraction, football-data.org / StatsBomb connectors, S3 raw lake sink, Kafka producers.
+- **M3: Warehouse Modeling:** ClickHouse schemas, dbt staging/marts models, normalization, data quality assertions.
+- **M4: Analytics Backend:** FastAPI modular monolith, ClickHouse repositories, Redis cache layer, comparison endpoints.
+- **M5: Web Application:** Next.js pages, player profiles, radar comparisons, interactive SVG pitch shot maps.
+- **M6: AI Agent:** LangGraph integration, analytical tool bindings, anti-hallucination guardrails, chat interface.
+- **M7: Production Readiness:** CI/CD pipelines, Vercel frontend deployment, worker hosting, observability dashboards.
+
+---
+
+## 9.2. Implementation Order Rationale
+
+> [!TIP]
+> **Do not start with the AI layer.**  
+> An AI analyst is only as reliable as the underlying data layer it queries. Build and validate the data platform and analytical database first, expose them through stable APIs, and integrate the AI layer once data veracity is established.
+
+---
+
+## 9.3. Sprint 1 Execution Plan (Day 1 – Day 7)
+
+```
+Day 1: Monorepo scaffolding, Docker Compose (Postgres, ClickHouse, Redis, Redpanda).
+Day 2: Database schemas initialized, ClickHouse connection verification.
+Day 3: Provider abstraction implemented; fetch competitions & matches from football-data.org.
+Day 4: Stream raw fixtures through Kafka; persist JSON payloads into MinIO raw lake.
+Day 5: ClickHouse consumer worker; load and normalize matches, teams, and players.
+Day 6: FastAPI endpoints: GET /competitions, GET /matches, GET /players.
+Day 7: Next.js frontend scaffolding: Homepage, Competition overview, and basic Player card.
+```
+
+*By the end of Sprint 1, the pipeline works end-to-end: External API ──► Kafka ──► ClickHouse ──► FastAPI ──► Next.js.*
+
+---
+
+## 9.4. Feature Definition of Done (DoD)
+
+A feature is considered **Done** only when all criteria are satisfied:
+- [ ] Source data client implemented and covered with unit tests.
+- [ ] Raw JSON payload preserved in S3/MinIO.
+- [ ] Kafka event published with standard envelope and versioned schema.
+- [ ] ClickHouse dimension/fact table modeled and dbt tests passing.
+- [ ] Data quality rules (integrity and boundary checks) active.
+- [ ] FastAPI endpoint returns data within the $p95 < 500\text{ms}$ budget.
+- [ ] Redis caching applied where appropriate.
+- [ ] UI visualizes metrics accurately with responsive design.
+- [ ] Error states and empty states handled gracefully.
+
+---
+
+## 9.5. Minimum Viable Product (MVP) Acceptance Criteria
+
+The MVP is complete when a user can execute the following verification flow:
+1. Open the web application and search for a football player.
+2. View the player's profile and filter stats across available seasons.
+3. Inspect interactive pitch shot maps with coordinate-accurate xG values.
+4. Select and compare two players side-by-side across key metrics.
+5. Review match center details, lineups, and team stats.
+6. Ask the AI Analyst a statistical comparison question and receive a hallucination-free answer backed by tool calls.
+7. Confirm that the data was processed through the end-to-end pipeline:  
+   $$\text{External Source} \;\longrightarrow\; \text{Kafka} \;\longrightarrow\; \text{MinIO} \;\longrightarrow\; \text{ClickHouse} \;\longrightarrow\; \text{FastAPI} \;\longrightarrow\; \text{Next.js}$$
+
+---
+
+## 9.6. Portfolio & CV Positioning
+
+### Project Summary Tagline
+> **Football Analytics Platform** — An event-driven football intelligence platform using Kafka, ClickHouse, Python, and FastAPI to stream, process, and analyze match- and event-level data. Features an analytical star-schema warehouse and an AI-powered conversational analyst built with LangGraph for deterministic, zero-hallucination football insights.
+
+### Ready-to-Use CV Bullet Points
+- **Architecture & Streaming:** Designed an event-driven data platform using Apache Kafka, ClickHouse, Python, and FastAPI to ingest and process match- and event-level football datasets.
+- **Data Engineering & Lakehouse:** Built robust ELT pipelines incorporating MinIO raw lake storage, schema validation, idempotency controls, and dbt models for historical performance data.
+- **High-Performance Analytics:** Implemented ClickHouse star-schema models and vectorized aggregations, exposing analytical endpoints with sub-second response times ($p95 < 500\text{ms}$).
+- **Deterministic AI Engineering:** Developed a LangGraph AI analyst leveraging typed tool-calling to interpret analytical data with strict anti-hallucination guardrails, preventing arbitrary SQL execution.
