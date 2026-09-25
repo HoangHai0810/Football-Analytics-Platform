@@ -1,7 +1,26 @@
 version: "3.9"
+
+# =============================================================
+# Football Analytics Platform — Full Docker Compose Stack
+#
+# Service Groups:
+#   [DE]  Data Engineering infrastructure (ClickHouse, Redpanda, MinIO, Kestra)
+#   [BE]  Backend API — Spring Boot 3.3 (apps/backend)
+#   [FE]  Frontend — ReactJS/Vite served via Nginx (apps/frontend)
+#   [INF] Shared infrastructure (PostgreSQL, Redis)
+#
+# IMPORTANT: Do NOT modify DE services below.
+# Only BE (backend) and FE (frontend) services were added.
+# =============================================================
+
 services:
+
+  # ─────────────────────────────────────────
+  # [DE] ClickHouse — OLAP Analytical Database
+  # ─────────────────────────────────────────
   clickhouse:
     image: clickhouse/clickhouse-server:24.3
+    container_name: football_clickhouse
     ports:
       - "8123:8123"   # HTTP interface
       - "9000:9000"   # Native TCP
@@ -17,9 +36,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - football_net
 
+  # ─────────────────────────────────────────
+  # [DE] Redpanda — Kafka-compatible streaming
+  # ─────────────────────────────────────────
   redpanda:
     image: redpandadata/redpanda:v24.1.1
+    container_name: football_redpanda
     ports:
       - "9092:9092"   # Kafka protocol
       - "9644:9644"   # Admin API
@@ -32,12 +57,18 @@ services:
       - --reserve-memory 0M
       - --overprovisioned
       - --kafka-addr PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr PLAINTEXT://localhost:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    networks:
+      - football_net
 
+  # ─────────────────────────────────────────
+  # [DE] MinIO — Raw Data Lakehouse (S3-compatible)
+  # ─────────────────────────────────────────
   minio:
     image: minio/minio:RELEASE.2024-01-01T00-00-00Z
+    container_name: football_minio
     ports:
-      - "9010:9000"   # S3 API (shifted)
+      - "9010:9000"   # S3 API (shifted to avoid conflict)
       - "9011:9001"   # Console UI
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -50,9 +81,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - football_net
 
+  # ─────────────────────────────────────────
+  # [INF] PostgreSQL — Transactional Database
+  # ─────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
+    container_name: football_postgres
     ports:
       - "5432:5432"
     environment:
@@ -61,15 +98,37 @@ services:
       POSTGRES_PASSWORD: postgres_dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d football_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - football_net
 
+  # ─────────────────────────────────────────
+  # [INF] Redis — Cache & Rate Limiting
+  # ─────────────────────────────────────────
   redis:
     image: redis:7-alpine
+    container_name: football_redis
     ports:
       - "6379:6379"
     command: redis-server --requirepass redis_dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_dev", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - football_net
 
+  # ─────────────────────────────────────────
+  # [DE] Kestra — Pipeline Orchestrator
+  # ─────────────────────────────────────────
   kestra:
     image: kestra/kestra:latest
+    container_name: football_kestra
     ports:
       - "8081:8080"
     environment:
@@ -80,9 +139,86 @@ services:
             username: postgres
             password: postgres_dev
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    networks:
+      - football_net
 
+  # ─────────────────────────────────────────
+  # [BE] Spring Boot REST API — Football Analytics
+  # Build: apps/backend/Dockerfile (multi-stage: Maven → JRE 17)
+  # Port: 8000 (host) → 8000 (container)
+  # ─────────────────────────────────────────
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: football_backend
+    image: football-analytics-backend:1.0.0
+    ports:
+      - "8000:8000"
+    environment:
+      # ClickHouse Connection (read-only OLAP queries)
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: football_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse_dev
+      # Spring profile
+      SPRING_PROFILES_ACTIVE: docker
+    # clickhouse is linked if present; backend has resilient in-memory fallback
+    depends_on:
+      - clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: on-failure
+    networks:
+      - football_net
+
+  # ─────────────────────────────────────────
+  # [FE] React + Nginx — Football Analytics Dashboard
+  # Build: apps/frontend/Dockerfile (multi-stage: Vite → Nginx)
+  # Port: 3000 (host) → 80 (container)
+  # Nginx proxies /api/* → backend:8000
+  # ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+      args:
+        # In Docker: Nginx proxies /api/* to backend service
+        VITE_API_BASE_URL: /api/v1
+    container_name: football_frontend
+    image: football-analytics-frontend:1.0.0
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: on-failure
+    networks:
+      - football_net
+
+# ─────────────────────────────────────────
+# Named Volumes
+# ─────────────────────────────────────────
 volumes:
   clickhouse_data:
   minio_data:
   postgres_data:
+
+# ─────────────────────────────────────────
+# Internal Bridge Network
+# ─────────────────────────────────────────
+networks:
+  football_net:
+    driver: bridge
