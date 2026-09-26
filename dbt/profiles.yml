@@ -1,0 +1,15 @@
+football_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: clickhouse
+      schema: "{{ env_var('CLICKHOUSE_DB', 'football_analytics') }}"
+      host: "{{ env_var('CLICKHOUSE_HOST', 'localhost') }}"
+      port: "{{ env_var('CLICKHOUSE_HTTP_PORT', '8123') | as_number }}"
+      user: "{{ env_var('CLICKHOUSE_USER', 'default') }}"
+      password: "{{ env_var('CLICKHOUSE_PASSWORD', 'clickhouse_dev') }}"
+      secure: false
+      verify: false
+      connect_timeout: 10
+      send_receive_timeout: 300
+      cluster: null
