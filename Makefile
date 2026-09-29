@@ -1,18 +1,20 @@
 # Makefile for Football Analytics Platform
-
+# ──────────────────────────────────────────────────────────────
 # Environment variables (can be overridden)
 PYTHON ?= python
-PIP ?= pip
+PIP    ?= pip
+DC     := docker-compose
 
-# ---------- Dependencies ----------
+# ══════════════════════════════════════════
+# [DE] DATA ENGINEERING — do NOT modify
+# ══════════════════════════════════════════
+
 install-deps:
 	$(PIP) install -r requirements-de.txt
 
-# ---------- Docker ----------
 build-worker:
 	docker build -t football/worker:dev -f infrastructure/docker/Dockerfile.worker .
 
-# ---------- Kafka producers ----------
 run-producer:
 	$(PYTHON) data-platform/ingestion/producers.py
 
@@ -29,16 +31,17 @@ run-clickhouse-writer:
 run-lakehouse-writer:
 	$(PYTHON) data-platform/consumers/lakehouse_writer.py
 
-# ---------- Test ----------
+lakehouse:
+	$(PYTHON) data-platform/consumers/lakehouse_writer.py
+
+kestra-flow:
+	@echo "Run Kestra flow with: kestra flow run ingestion_flow.yaml"
+
 test:
 	$(PYTHON) -m pytest data-platform/tests
 
-# ---------- Utility ----------
 clean:
 	rm -rf __pycache__ .pytest_cache
-# ---------- Sprint 3 targets ----------
-lakehouse:
-	$(PYTHON) data-platform/consumers/lakehouse_writer.py
 
 kestra-flow:
 	@echo "Run Kestra flow with: kestra flow run ingestion_flow.yaml"
