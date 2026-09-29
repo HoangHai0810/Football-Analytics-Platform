@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: stg_player_matches
+    description: "Cleaned and deduplicated player match records enriched with competition and season IDs"
+    columns:
+      - name: match_player_key
+        description: "Surrogate key combining player_id and match_id"
+        tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: "Reference to match"
+        tests:
+          - not_null
+      - name: player_id
+        description: "Reference to player"
+        tests:
+          - not_null
+      - name: team_id
+        description: "Reference to team"
+        tests:
+          - not_null
+
+  - name: stg_events
+    description: "Cleaned and deduplicated on-ball match events with verified pitch coordinates"
+    columns:
+      - name: event_id
+        description: "Unique event identifier"
+        tests:
+          - unique
+          - not_null
+      - name: match_id
+        description: "Reference to match"
+        tests:
+          - not_null
+      - name: event_type
+        description: "Type of event"
+        tests:
+          - not_null

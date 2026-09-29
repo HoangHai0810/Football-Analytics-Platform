@@ -153,11 +153,11 @@ events = sb.events(match_id=7430)
 
 > **Mục tiêu:** BE có thể query bảng mart và nhận số liệu chuẩn trong < 50ms.
 
-- [ ] **Cấu hình dbt project** (`dbt/dbt_project.yml`, `dbt/profiles.yml`).
-- [ ] **Staging models** (`dbt/models/staging/`):
+- [x] **Cấu hình dbt project** (`dbt/dbt_project.yml`, `dbt/profiles.yml`).
+- [x] **Staging models** (`dbt/models/staging/`):
   - `stg_events.sql` — deduplicate và làm sạch `fact_event`.
   - `stg_player_matches.sql` — lọc records hợp lệ từ `fact_player_match`.
-- [ ] **Mart models** (`dbt/models/marts/`):
+- [x] **Mart models** (`dbt/models/marts/`):
   - `mart_player_season_stats.sql`:
     ```sql
     SELECT
@@ -173,8 +173,8 @@ events = sb.events(match_id=7430)
     GROUP BY player_id, season_id
     ```
   - `mart_team_season_stats.sql` — tương tự nhưng theo `team_id`.
-- [ ] **dbt tests**: Thêm YAML test file cho mỗi model (`not_null`, `unique` trên primary keys).
-- [ ] **Chạy `dbt run && dbt test`** thành công với 0 error.
+- [x] **dbt tests**: Thêm YAML test file cho mỗi model (`not_null`, `unique` trên primary keys).
+- [x] **Chạy `dbt run && dbt test`** thành công với 0 error.
 
 ### ✅ Sprint 5 — Data Quality & Kestra Orchestration
 

@@ -1,0 +1,73 @@
+version: 2
+
+sources:
+  - name: football_analytics
+    database: "{{ env_var('CLICKHOUSE_DB', 'football_analytics') }}"
+    description: "Raw and star schema data ingested from external providers (StatsBomb, football-data.org) via Kafka into ClickHouse."
+    tables:
+      - name: dim_competition
+        description: "Competition metadata (Champions League, Premier League, etc.)"
+        columns:
+          - name: competition_id
+            description: "Primary key for competition"
+            tests:
+              - unique
+              - not_null
+      - name: dim_season
+        description: "Season reference metadata"
+        columns:
+          - name: season_id
+            description: "Unique season identifier"
+            tests:
+              - not_null
+          - name: competition_id
+            description: "Foreign key to dim_competition"
+      - name: dim_team
+        description: "Team dimension with name and logo URL"
+        columns:
+          - name: team_id
+            description: "Primary key for team"
+            tests:
+              - unique
+              - not_null
+      - name: dim_player
+        description: "Player dimension containing name, position, nationality"
+        columns:
+          - name: player_id
+            description: "Primary key for player"
+            tests:
+              - unique
+              - not_null
+      - name: dim_match
+        description: "Match metadata connecting competitions, seasons, teams, and match dates"
+        columns:
+          - name: match_id
+            description: "Primary key for match"
+            tests:
+              - unique
+              - not_null
+      - name: fact_match
+        description: "Match aggregate score, overall xG, duration, attendance"
+        columns:
+          - name: match_id
+            tests:
+              - unique
+              - not_null
+      - name: fact_player_match
+        description: "Player performance metrics recorded per match"
+        columns:
+          - name: match_id
+            tests:
+              - not_null
+          - name: player_id
+            tests:
+              - not_null
+      - name: fact_event
+        description: "High-volume granular on-ball match events (passes, shots, duels)"
+        columns:
+          - name: event_id
+            tests:
+              - not_null
+          - name: match_id
+            tests:
+              - not_null
