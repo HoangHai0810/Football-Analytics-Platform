@@ -8,27 +8,34 @@
  * Data Source: Spring Boot → ClickHouse OLAP (real DE pipeline data)
  */
 
-// Validate that VITE_API_BASE_URL is an absolute URL at build time
-const RAW_URL = import.meta.env.VITE_API_BASE_URL;
+// Production backend — always absolute, always includes /api/v1
+const PRODUCTION_BACKEND = 'https://football-analytics-platform.onrender.com/api/v1';
 
 function resolveApiBase() {
-  if (!RAW_URL) {
-    // Development fallback only
-    return 'http://localhost:8000/api/v1';
+  const raw = import.meta.env.VITE_API_BASE_URL;
+
+  // No env var → use production in prod, localhost in dev
+  if (!raw) {
+    return import.meta.env.PROD ? PRODUCTION_BACKEND : 'http://localhost:8000/api/v1';
   }
-  // Guard against missing protocol — prevents relative URL bug on Vercel
-  if (!RAW_URL.startsWith('http://') && !RAW_URL.startsWith('https://')) {
-    return `https://${RAW_URL}`;
+
+  // Ensure protocol prefix
+  let url = (!raw.startsWith('http://') && !raw.startsWith('https://'))
+    ? `https://${raw}`
+    : raw;
+
+  // Ensure /api/v1 suffix — guard against env var set without it
+  if (!url.includes('/api/v')) {
+    url = url.replace(/\/$/, '') + '/api/v1';
   }
-  return RAW_URL;
+
+  return url;
 }
 
 const API_BASE_URL = resolveApiBase();
 
-// Log in dev so engineers can verify correct URL is used
-if (import.meta.env.DEV) {
-  console.info('[API] Base URL:', API_BASE_URL);
-}
+// Always log so browser DevTools shows the URL being used
+console.info('[API] Base URL:', API_BASE_URL);
 
 /**
  * Core fetch wrapper — NO fallback, throws on failure.
