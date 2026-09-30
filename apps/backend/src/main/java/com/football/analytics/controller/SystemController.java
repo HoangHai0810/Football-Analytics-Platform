@@ -25,12 +25,34 @@ public class SystemController {
         return Map.of("status", "ok", "app", "football-analytics-api-springboot", "version", "1.0.0");
     }
 
+    @GetMapping("/api/v1/system/health")
+    public Map<String, Object> apiHealth() {
+        return Map.of(
+            "status", "ok",
+            "app", "football-analytics-api",
+            "version", "1.0.0",
+            "timestamp", java.time.Instant.now().toString()
+        );
+    }
+
     @GetMapping("/api/v1/system/status")
     public ApiResponse<SystemStatusDto> getSystemStatus() {
-        long start = System.currentTimeMillis();
-        boolean chOnline = clickHouseRepository.testConnection();
+        return buildStatus();
+    }
 
-        String chStatus = chOnline ? "ONLINE (Connected to ClickHouse OLAP)" : "STANDBY (ClickHouse local container reachable)";
+    @GetMapping("/api/v1/system/info")
+    public ApiResponse<SystemStatusDto> getSystemInfo() {
+        return buildStatus();
+    }
+
+    private ApiResponse<SystemStatusDto> buildStatus() {
+        long start = System.currentTimeMillis();
+        boolean chOnline = false;
+        try {
+            chOnline = clickHouseRepository.testConnection();
+        } catch (Exception ignored) {}
+
+        String chStatus = chOnline ? "ONLINE (Connected to ClickHouse OLAP)" : "STANDBY (Using seed data store)";
         String deStatus = "IN_PROGRESS (Lakehouse Writer active, batch sync underway)";
         String activeSource = chOnline ? "CLICKHOUSE_LIVE" : "HIGH_FIDELITY_SEED_STORE";
 
