@@ -7,6 +7,7 @@ import com.football.analytics.repository.SeedDataStore;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Collections;
 import java.util.Map;
 
 @RestController
@@ -33,6 +34,16 @@ public class SystemController {
         String deStatus = "IN_PROGRESS (Lakehouse Writer active, batch sync underway)";
         String activeSource = chOnline ? "CLICKHOUSE_LIVE" : "HIGH_FIDELITY_SEED_STORE";
 
+        Map<String, Long> entityCounts = Collections.emptyMap();
+        if (chOnline) {
+            try {
+                entityCounts = clickHouseRepository.getEntityCounts();
+            } catch (Exception ignored) {}
+        }
+        if (entityCounts.isEmpty() || entityCounts.values().stream().mapToLong(Long::longValue).sum() == 0) {
+            entityCounts = seedDataStore.getEntityCounts();
+        }
+
         SystemStatusDto statusDto = new SystemStatusDto(
             "HEALTHY",
             "1.0.0 (Spring Boot 3.3.4 + ClickHouse JDBC)",
@@ -40,7 +51,7 @@ public class SystemController {
             deStatus,
             true,
             activeSource,
-            seedDataStore.getEntityCounts()
+            entityCounts
         );
 
         return ApiResponse.success(statusDto, start, false);

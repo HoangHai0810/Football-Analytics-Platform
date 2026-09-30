@@ -5,36 +5,75 @@ import com.football.analytics.exception.ResourceNotFoundException;
 import com.football.analytics.model.Player;
 import com.football.analytics.model.PlayerSeasonStats;
 import com.football.analytics.model.ShotEvent;
+import com.football.analytics.repository.ClickHouseRepository;
 import com.football.analytics.repository.SeedDataStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
 @Service
 public class PlayerService {
+    private static final Logger log = LoggerFactory.getLogger(PlayerService.class);
+
+    private final ClickHouseRepository clickHouseRepository;
     private final SeedDataStore seedDataStore;
 
-    public PlayerService(SeedDataStore seedDataStore) {
+    public PlayerService(ClickHouseRepository clickHouseRepository, SeedDataStore seedDataStore) {
+        this.clickHouseRepository = clickHouseRepository;
         this.seedDataStore = seedDataStore;
     }
 
     public List<Player> getAllPlayers(String query, String position) {
+        try {
+            List<Player> players = clickHouseRepository.getAllPlayers(query, position);
+            if (players != null && !players.isEmpty()) {
+                return players;
+            }
+        } catch (Exception e) {
+            log.warn("ClickHouse players query failed: {}", e.getMessage());
+        }
         return seedDataStore.getAllPlayers(query, position);
     }
 
     public Player getPlayerById(Long id) {
+        try {
+            var p = clickHouseRepository.getPlayer(id);
+            if (p.isPresent()) {
+                return p.get();
+            }
+        } catch (Exception e) {
+            log.warn("ClickHouse getPlayer query failed: {}", e.getMessage());
+        }
         return seedDataStore.getPlayer(id)
             .orElseThrow(() -> new ResourceNotFoundException("PLAYER_NOT_FOUND", "Player with id " + id + " not found."));
     }
 
     public PlayerSeasonStats getPlayerStats(Long playerId, Long seasonId) {
         getPlayerById(playerId); // validate player exists
+        try {
+            var stats = clickHouseRepository.getPlayerStats(playerId, seasonId);
+            if (stats.isPresent()) {
+                return stats.get();
+            }
+        } catch (Exception e) {
+            log.warn("ClickHouse getPlayerStats query failed: {}", e.getMessage());
+        }
         return seedDataStore.getPlayerStats(playerId, seasonId)
             .orElseThrow(() -> new ResourceNotFoundException("STATS_NOT_FOUND", "Statistics for player " + playerId + " in season " + seasonId + " not found."));
     }
 
     public List<ShotEvent> getPlayerShots(Long playerId, Long seasonId) {
         getPlayerById(playerId);
+        try {
+            List<ShotEvent> shots = clickHouseRepository.getPlayerShots(playerId, seasonId);
+            if (shots != null && !shots.isEmpty()) {
+                return shots;
+            }
+        } catch (Exception e) {
+            log.warn("ClickHouse getPlayerShots query failed: {}", e.getMessage());
+        }
         return seedDataStore.getPlayerShots(playerId, seasonId);
     }
 
@@ -80,3 +119,4 @@ public class PlayerService {
         map.put(name, new ComparisonDto.MetricComparison(name, v1, v2, leader, diff));
     }
 }
+

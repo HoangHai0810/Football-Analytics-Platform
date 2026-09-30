@@ -11,22 +11,26 @@ spring:
       write-dates-as-timestamps: false
 
 # ClickHouse OLAP configuration (matching data_contract.md)
+# In production: set these via environment variables (Render.com, Docker, etc.)
 clickhouse:
   host: ${CLICKHOUSE_HOST:localhost}
   port: ${CLICKHOUSE_PORT:8123}
   database: ${CLICKHOUSE_DB:football_analytics}
   user: ${CLICKHOUSE_USER:default}
   password: ${CLICKHOUSE_PASSWORD:clickhouse_dev}
-  socket-timeout-ms: 5000
-  connection-timeout-ms: 3000
+  # Set to true when using ClickHouse Cloud or HTTPS tunnel (ngrok HTTPS)
+  ssl: ${CLICKHOUSE_SSL:false}
+  socket-timeout-ms: 8000
+  connection-timeout-ms: 5000
 
-# CORS allowed origins
+# CORS allowed origins (comma-separated, overridable via env)
 cors:
   allowed-origins:
     - "http://localhost:3000"
     - "http://localhost:5173"
     - "http://127.0.0.1:5173"
     - "http://localhost:4173"
+    - "${FRONTEND_URL:https://football-analytics-platform.vercel.app}"
 
 # Management & Health Actuator
 management:
