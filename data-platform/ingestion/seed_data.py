@@ -29,12 +29,11 @@ try:
 except ModuleNotFoundError:
     from transformers.event_normalizer import normalize_event
 
-CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "").strip()
 CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123"))
-CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "football_analytics")
-CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
-CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "clickhouse_dev")
-
+CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "football_analytics").strip() or "football_analytics"
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default").strip() or "default"
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "").strip()
 CLICKHOUSE_SECURE = os.getenv("CLICKHOUSE_SECURE", "false").lower() in ("true", "1", "yes")
 
 COMPETITION_ID = 11   # La Liga
@@ -50,6 +49,14 @@ TEAM_LOGOS = {
 }
 
 def seed():
+    if not CLICKHOUSE_HOST:
+        print("=" * 60)
+        print("❌ LỖI: Chưa cấu hình biến CLICKHOUSE_HOST!")
+        print("👉 Vui lòng thêm CLICKHOUSE_HOST vào GitHub Repository:")
+        print("   Settings -> Secrets and variables -> Actions -> New repository secret")
+        print("=" * 60)
+        sys.exit(1)
+
     print(f"📡 Connecting to ClickHouse at {CLICKHOUSE_HOST}:{CLICKHOUSE_PORT} (db: {CLICKHOUSE_DB}, secure: {CLICKHOUSE_SECURE})...")
     client = clickhouse_connect.get_client(
         host=CLICKHOUSE_HOST,
