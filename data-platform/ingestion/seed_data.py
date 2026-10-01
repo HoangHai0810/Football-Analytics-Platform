@@ -58,15 +58,53 @@ def seed():
         sys.exit(1)
 
     print(f"📡 Connecting to ClickHouse at {CLICKHOUSE_HOST}:{CLICKHOUSE_PORT} (db: {CLICKHOUSE_DB}, secure: {CLICKHOUSE_SECURE})...")
-    client = clickhouse_connect.get_client(
-        host=CLICKHOUSE_HOST,
-        port=CLICKHOUSE_PORT,
-        database=CLICKHOUSE_DB,
-        username=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        secure=CLICKHOUSE_SECURE,
-    )
+    try:
+        client = clickhouse_connect.get_client(
+            host=CLICKHOUSE_HOST,
+            port=CLICKHOUSE_PORT,
+            database=CLICKHOUSE_DB,
+            username=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            secure=CLICKHOUSE_SECURE,
+        )
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "doesn't exist" in err_msg or "does not exist" in err_msg or "unknown database" in err_msg:
+            print(f"⚠️ Database '{CLICKHOUSE_DB}' does not exist yet. Connecting to 'default' to create it...")
+            admin_client = clickhouse_connect.get_client(
+                host=CLICKHOUSE_HOST,
+                port=CLICKHOUSE_PORT,
+                database="default",
+                username=CLICKHOUSE_USER,
+                password=CLICKHOUSE_PASSWORD,
+                secure=CLICKHOUSE_SECURE,
+            )
+            admin_client.command(f"CREATE DATABASE IF NOT EXISTS {CLICKHOUSE_DB}")
+            client = clickhouse_connect.get_client(
+                host=CLICKHOUSE_HOST,
+                port=CLICKHOUSE_PORT,
+                database=CLICKHOUSE_DB,
+                username=CLICKHOUSE_USER,
+                password=CLICKHOUSE_PASSWORD,
+                secure=CLICKHOUSE_SECURE,
+            )
+        else:
+            raise e
     print("✅ Connected to ClickHouse successfully.")
+
+    # 0. Ensure dimension and fact tables exist before inserting data
+    init_sql_path = root_dir / "infrastructure" / "clickhouse" / "init.sql"
+    if init_sql_path.exists():
+        print(f"📦 Verifying database schema from {init_sql_path.name}...")
+        sql_content = init_sql_path.read_text(encoding="utf-8")
+        for stmt in sql_content.split(";"):
+            clean_stmt = stmt.strip()
+            if clean_stmt:
+                try:
+                    client.command(clean_stmt)
+                except Exception as ex:
+                    print(f"⚠️ Schema warning: {ex}")
+        print("✅ Schema verified / initialized.")
 
     # 1. Competitions & Seasons
     competitions = sb.competitions()

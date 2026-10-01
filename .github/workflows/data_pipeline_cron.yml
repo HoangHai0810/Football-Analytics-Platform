@@ -9,6 +9,7 @@ on:
 jobs:
   ingest-and-transform:
     runs-on: ubuntu-latest
+    environment: CLICKHOUSE_HOST
 
     steps:
       - name: Checkout Repository
@@ -27,11 +28,11 @@ jobs:
       - name: Run Data Ingestion & ClickHouse Population
         env:
           CLICKHOUSE_HOST: ${{ secrets.CLICKHOUSE_HOST }}
-          CLICKHOUSE_HTTP_PORT: ${{ secrets.CLICKHOUSE_HTTP_PORT || '8123' }}
+          CLICKHOUSE_HTTP_PORT: ${{ secrets.CLICKHOUSE_HTTP_PORT || secrets.CLICKHOUSE_PORT || '8123' }}
           CLICKHOUSE_DB: ${{ secrets.CLICKHOUSE_DB || 'football_analytics' }}
           CLICKHOUSE_USER: ${{ secrets.CLICKHOUSE_USER || 'default' }}
           CLICKHOUSE_PASSWORD: ${{ secrets.CLICKHOUSE_PASSWORD }}
-          CLICKHOUSE_SECURE: ${{ secrets.CLICKHOUSE_SECURE || 'false' }}
+          CLICKHOUSE_SECURE: ${{ secrets.CLICKHOUSE_SECURE || secrets.CLICKHOUSE_SSL || 'false' }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           echo "🚀 Starting automated ingestion pipeline..."
