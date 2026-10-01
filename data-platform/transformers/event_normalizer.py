@@ -23,9 +23,16 @@ def normalize_event(raw_event: dict, match_id: int) -> dict:
     minute = int(raw_event.get("minute", 0))
     second = int(raw_event.get("second", 0))
 
-    location = raw_event.get("location") or []
-    x = float(location[0]) if len(location) > 0 and location[0] is not None else 0.0
-    y = float(location[1]) if len(location) > 1 and location[1] is not None else 0.0
+    location = raw_event.get("location")
+    x = 0.0
+    y = 0.0
+    if isinstance(location, (list, tuple)) and len(location) > 0:
+        if location[0] is not None:
+            try: x = float(location[0])
+            except (ValueError, TypeError): x = 0.0
+        if len(location) > 1 and location[1] is not None:
+            try: y = float(location[1])
+            except (ValueError, TypeError): y = 0.0
 
     end_x = None
     end_y = None
@@ -34,21 +41,27 @@ def normalize_event(raw_event: dict, match_id: int) -> dict:
     # Specific event handling
     if "pass" in raw_event and isinstance(raw_event["pass"], dict):
         pass_data = raw_event["pass"]
-        end_loc = pass_data.get("end_location") or []
-        if len(end_loc) > 0 and end_loc[0] is not None:
-            end_x = float(end_loc[0])
-        if len(end_loc) > 1 and end_loc[1] is not None:
-            end_y = float(end_loc[1])
+        end_loc = pass_data.get("end_location")
+        if isinstance(end_loc, (list, tuple)) and len(end_loc) > 0:
+            if end_loc[0] is not None:
+                try: end_x = float(end_loc[0])
+                except (ValueError, TypeError): pass
+            if len(end_loc) > 1 and end_loc[1] is not None:
+                try: end_y = float(end_loc[1])
+                except (ValueError, TypeError): pass
         if pass_data.get("outcome"):
             outcome = str(pass_data["outcome"].get("name", "FAIL")).upper()
 
     elif "shot" in raw_event and isinstance(raw_event["shot"], dict):
         shot_data = raw_event["shot"]
-        end_loc = shot_data.get("end_location") or []
-        if len(end_loc) > 0 and end_loc[0] is not None:
-            end_x = float(end_loc[0])
-        if len(end_loc) > 1 and end_loc[1] is not None:
-            end_y = float(end_loc[1])
+        end_loc = shot_data.get("end_location")
+        if isinstance(end_loc, (list, tuple)) and len(end_loc) > 0:
+            if end_loc[0] is not None:
+                try: end_x = float(end_loc[0])
+                except (ValueError, TypeError): pass
+            if len(end_loc) > 1 and end_loc[1] is not None:
+                try: end_y = float(end_loc[1])
+                except (ValueError, TypeError): pass
         if shot_data.get("outcome"):
             outcome = str(shot_data["outcome"].get("name", "OFF_TARGET")).upper()
 

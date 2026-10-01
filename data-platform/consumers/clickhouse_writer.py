@@ -3,10 +3,25 @@
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, List
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
+root_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(root_dir))
+sys.path.insert(0, str(root_dir / "data-platform"))
 
 import clickhouse_connect
 from confluent_kafka import Consumer, KafkaException
+
+try:
+    from data_platform.transformers.event_normalizer import normalize_event
+except ModuleNotFoundError:
+    from transformers.event_normalizer import normalize_event
 
 # ---------------------------------------------------------------------------
 # Configuration – load from environment (Docker compose provides .env)
