@@ -28,12 +28,11 @@ public class AiAnalystController {
     public ApiResponse<List<String>> getSuggestedPrompts() {
         long start = System.currentTimeMillis();
         List<String> prompts = List.of(
-            "Phân tích hiệu suất dứt điểm của Erling Haaland so với chỉ số xG mùa 2024/2025",
-            "So sánh phong cách thi đấu giữa Erling Haaland và Kylian Mbappé",
-            "Đánh giá năng lực sáng tạo và kiến tạo (xA) của Bukayo Saka",
-            "Phân tích tầm ảnh hưởng của Kevin De Bruyne ở khâu dọn cỗ cho Man City",
-            "Đánh giá khả năng phòng ngự và phân phối bóng của Rodri",
-            "Đội bóng nào đang có hiệu suất xG áp đảo nhất?"
+            "Phân tích cầu thủ từ dữ liệu La Liga đã ingest",
+            "Liệt kê thống kê mùa giải của một cầu thủ trong ClickHouse",
+            "So sánh hai cầu thủ bằng số liệu mart_player_season_stats",
+            "Xem trận đấu thật đã load từ StatsBomb open data",
+            "Kiểm tra hệ thống đã kết nối ClickHouse chưa?"
         );
         return ApiResponse.success(prompts, start, true);
     }

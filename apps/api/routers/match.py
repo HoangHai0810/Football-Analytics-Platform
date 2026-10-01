@@ -13,9 +13,8 @@ class Match(BaseModel):
     match_date: str
     status: str
 
-# Dummy data placeholder – real data will come from ClickHouse via DE layer
-FAKE_MATCHES: List[Match] = []
-
 @router.get("/", response_model=List[Match])
 async def list_matches():
-    return FAKE_MATCHES
+    # Real match data is served by the Spring Boot API from ClickHouse.
+    # This FastAPI stub intentionally returns empty — no mock data.
+    return []

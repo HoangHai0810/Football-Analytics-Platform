@@ -19,7 +19,7 @@ public class SystemStatusDto {
     private boolean lakehouseWriterActive;
 
     @JsonProperty("active_source")
-    private String activeSource; // "CLICKHOUSE_LIVE" | "HIGH_FIDELITY_SEED_STORE"
+    private String activeSource; // "CLICKHOUSE_LIVE" | "NONE"
 
     @JsonProperty("entity_counts")
     private Map<String, Long> entityCounts;

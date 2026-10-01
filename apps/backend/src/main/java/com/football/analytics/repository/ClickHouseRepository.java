@@ -37,14 +37,27 @@ public class ClickHouseRepository {
     private int socketTimeoutMs;
 
     private Connection getConnection() throws SQLException {
-        // Support both plain HTTP (local/ngrok) and HTTPS (ClickHouse Cloud)
-        String scheme = ssl ? "https" : "http";
-        String url = String.format("jdbc:ch:%s://%s:%d/%s", scheme, host, port, database);
+        String effectiveHost = host == null ? "localhost" : host.trim()
+            .replaceFirst("(?i)^https?://", "")
+            .replaceAll("/$", "");
+
+        // ngrok free HTTPS terminates on 443 — force correct scheme/port when tunneling
+        boolean ngrok = effectiveHost.contains("ngrok");
+        boolean useSsl = ssl || ngrok;
+        int effectivePort = port;
+        if (ngrok && (port == 8123 || port <= 0)) {
+            effectivePort = 443;
+        }
+
+        String scheme = useSsl ? "https" : "http";
+        String url = String.format("jdbc:ch:%s://%s:%d/%s", scheme, effectiveHost, effectivePort, database);
         Properties props = new Properties();
         props.setProperty("user", user);
         props.setProperty("password", password);
         props.setProperty("socket_timeout", String.valueOf(socketTimeoutMs));
-        if (ssl) {
+        // Bypass ngrok free-tier browser interstitial for JDBC/HTTP clients
+        props.setProperty("custom_http_headers", "ngrok-skip-browser-warning=true");
+        if (useSsl) {
             props.setProperty("ssl", "true");
             props.setProperty("sslmode", "strict");
         }
@@ -56,11 +69,12 @@ public class ClickHouseRepository {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT 1")) {
             if (rs.next()) {
-                log.info("ClickHouse connection verified successfully on port {}", port);
+                log.info("ClickHouse connection verified: {}://{}:{}/{}", ssl ? "https" : "http", host, port, database);
                 return true;
             }
         } catch (Exception e) {
-            log.debug("ClickHouse is currently offline or unreachable: {}", e.getMessage());
+            log.error("ClickHouse unreachable at {}://{}:{}/{} — {}",
+                ssl ? "https" : "http", host, port, database, e.getMessage());
         }
         return false;
     }

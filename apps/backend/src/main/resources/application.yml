@@ -12,6 +12,10 @@ spring:
 
 # ClickHouse OLAP configuration (matching data_contract.md)
 # In production: set these via environment variables (Render.com, Docker, etc.)
+# ngrok example:
+#   CLICKHOUSE_HOST=edgy-jokester-ranger.ngrok-free.dev
+#   CLICKHOUSE_PORT=443
+#   CLICKHOUSE_SSL=true
 clickhouse:
   host: ${CLICKHOUSE_HOST:localhost}
   port: ${CLICKHOUSE_PORT:8123}

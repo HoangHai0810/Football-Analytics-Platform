@@ -4,11 +4,11 @@ import com.football.analytics.exception.ResourceNotFoundException;
 import com.football.analytics.model.Competition;
 import com.football.analytics.model.Season;
 import com.football.analytics.repository.ClickHouseRepository;
-import com.football.analytics.repository.SeedDataStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -16,49 +16,43 @@ public class CompetitionService {
     private static final Logger log = LoggerFactory.getLogger(CompetitionService.class);
 
     private final ClickHouseRepository clickHouseRepository;
-    private final SeedDataStore seedDataStore;
 
-    public CompetitionService(ClickHouseRepository clickHouseRepository, SeedDataStore seedDataStore) {
+    public CompetitionService(ClickHouseRepository clickHouseRepository) {
         this.clickHouseRepository = clickHouseRepository;
-        this.seedDataStore = seedDataStore;
     }
 
     public List<Competition> getAllCompetitions() {
         try {
             List<Competition> comps = clickHouseRepository.getAllCompetitions();
-            if (comps != null && !comps.isEmpty()) {
-                return comps;
-            }
+            return comps != null ? comps : Collections.emptyList();
         } catch (Exception e) {
-            log.warn("ClickHouse competition query failed: {}", e.getMessage());
+            log.error("ClickHouse competition query failed: {}", e.getMessage());
+            return Collections.emptyList();
         }
-        return seedDataStore.getAllCompetitions();
     }
 
     public Competition getCompetitionById(Long id) {
         try {
-            var comp = clickHouseRepository.getCompetition(id);
-            if (comp.isPresent()) {
-                return comp.get();
-            }
+            return clickHouseRepository.getCompetition(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                    "COMPETITION_NOT_FOUND", "Competition with id " + id + " not found."));
+        } catch (ResourceNotFoundException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("ClickHouse getCompetition query failed: {}", e.getMessage());
+            log.error("ClickHouse getCompetition query failed: {}", e.getMessage());
+            throw new ResourceNotFoundException(
+                "COMPETITION_NOT_FOUND", "Competition with id " + id + " not found.");
         }
-        return seedDataStore.getCompetition(id)
-            .orElseThrow(() -> new ResourceNotFoundException("COMPETITION_NOT_FOUND", "Competition with id " + id + " not found."));
     }
 
     public List<Season> getSeasons(Long competitionId) {
-        getCompetitionById(competitionId); // validate existence
+        getCompetitionById(competitionId);
         try {
             List<Season> seasons = clickHouseRepository.getSeasonsByCompetition(competitionId);
-            if (seasons != null && !seasons.isEmpty()) {
-                return seasons;
-            }
+            return seasons != null ? seasons : Collections.emptyList();
         } catch (Exception e) {
-            log.warn("ClickHouse getSeasons query failed: {}", e.getMessage());
+            log.error("ClickHouse getSeasons query failed: {}", e.getMessage());
+            return Collections.emptyList();
         }
-        return seedDataStore.getSeasonsByCompetition(competitionId);
     }
 }
-

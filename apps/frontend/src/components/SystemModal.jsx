@@ -63,7 +63,7 @@ export default function SystemModal({ onClose }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
             <span style={{ color: 'var(--text-secondary)' }}>Active Data Engine:</span>
             <span style={{ color: '#c084fc', fontWeight: 600 }}>
-              {statusInfo?.active_source || 'HIGH_FIDELITY_SEED_STORE'}
+              {statusInfo?.active_source || 'NONE'}
             </span>
           </div>
         </div>

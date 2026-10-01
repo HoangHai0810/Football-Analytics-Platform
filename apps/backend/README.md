@@ -1,9 +1,9 @@
 # ⚽ Football Analytics Platform — Spring Boot Backend API
 
 ## Overview
-High-performance REST API module built with **Spring Boot 3.3.4** and **Java 17+**, designed for the Football Analytics Platform. It implements a dual-mode data layer:
-1. **ClickHouse OLAP Layer**: Connects to ClickHouse on port `8123` / `9000` via JDBC to run analytical queries over dimension tables (`dim_*`), fact tables (`fact_*`), and dbt analytical marts (`mart_player_season_stats`).
-2. **High-Fidelity Resilient Seed Store**: Provides realistic, complete data matching `data_contract.md` even when the Data Engineering (DE) pipeline is in progress.
+High-performance REST API module built with **Spring Boot 3.3.4** and **Java 17+**, designed for the Football Analytics Platform.
+
+**Data source (strict):** ClickHouse OLAP only — tables `dim_*`, `fact_*`, and dbt marts (`mart_player_season_stats`). There is **no mock/seed fallback**. If ClickHouse is unreachable or empty, list endpoints return `[]` and detail endpoints return `404`.
 
 ## Prerequisites
 - **JDK 17+** (e.g. OpenJDK 17 or 21)
