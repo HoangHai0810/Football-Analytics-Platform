@@ -19,7 +19,12 @@ function resolveApiBase() {
     return import.meta.env.PROD ? PRODUCTION_BACKEND : 'http://localhost:8000/api/v1';
   }
 
-  // Ensure protocol prefix
+  // Guard: if raw is a relative path (e.g. '/api/v1' for Nginx reverse proxy in Docker), keep it
+  if (raw.startsWith('/')) {
+    return raw.replace(/\/$/, '');
+  }
+
+  // Ensure protocol prefix for absolute URLs
   let url = (!raw.startsWith('http://') && !raw.startsWith('https://'))
     ? `https://${raw}`
     : raw;
@@ -179,5 +184,9 @@ export const api = {
    */
   async getSystemStatus() {
     return apiFetch('/system/status');
+  },
+
+  getBaseUrl() {
+    return API_BASE_URL;
   },
 };

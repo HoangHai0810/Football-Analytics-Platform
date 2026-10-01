@@ -36,30 +36,52 @@ public class ClickHouseRepository {
     @Value("${clickhouse.socket-timeout-ms:8000}")
     private int socketTimeoutMs;
 
+    private volatile long lastConnectionFailure = 0;
+    private static final long COOLDOWN_MS = 20000; // 20s cooldown when unreachable
+
+    public boolean isTemporarilyOffline() {
+        return (System.currentTimeMillis() - lastConnectionFailure) < COOLDOWN_MS;
+    }
+
     private Connection getConnection() throws SQLException {
-        // Support both plain HTTP (local/ngrok) and HTTPS (ClickHouse Cloud)
-        String scheme = ssl ? "https" : "http";
-        String url = String.format("jdbc:ch:%s://%s:%d/%s", scheme, host, port, database);
-        Properties props = new Properties();
-        props.setProperty("user", user);
-        props.setProperty("password", password);
-        props.setProperty("socket_timeout", String.valueOf(socketTimeoutMs));
-        if (ssl) {
-            props.setProperty("ssl", "true");
-            props.setProperty("sslmode", "strict");
+        if (isTemporarilyOffline()) {
+            throw new SQLException("ClickHouse is in cooldown period due to recent connection failure.");
         }
-        return DriverManager.getConnection(url, props);
+        try {
+            // Support both plain HTTP (local/ngrok) and HTTPS (ClickHouse Cloud)
+            String scheme = ssl ? "https" : "http";
+            String url = String.format("jdbc:ch:%s://%s:%d/%s", scheme, host, port, database);
+            Properties props = new Properties();
+            props.setProperty("user", user);
+            props.setProperty("password", password);
+            props.setProperty("socket_timeout", String.valueOf(socketTimeoutMs));
+            if (ssl) {
+                props.setProperty("ssl", "true");
+                props.setProperty("sslmode", "strict");
+            }
+            Connection conn = DriverManager.getConnection(url, props);
+            lastConnectionFailure = 0;
+            return conn;
+        } catch (SQLException e) {
+            lastConnectionFailure = System.currentTimeMillis();
+            throw e;
+        }
     }
 
     public boolean testConnection() {
+        if (isTemporarilyOffline()) {
+            return false;
+        }
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT 1")) {
             if (rs.next()) {
+                lastConnectionFailure = 0;
                 log.info("ClickHouse connection verified successfully on port {}", port);
                 return true;
             }
         } catch (Exception e) {
+            lastConnectionFailure = System.currentTimeMillis();
             log.debug("ClickHouse is currently offline or unreachable: {}", e.getMessage());
         }
         return false;

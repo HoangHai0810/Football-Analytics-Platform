@@ -48,7 +48,7 @@ services:
     ports:
       - "9092:9092"   # Kafka protocol
       - "9644:9644"   # Admin API
-      - "8080:8080"   # Console UI
+      - "8088:8080"   # Console UI (shifted to 8088 to avoid port 8080 conflict)
     command:
       - redpanda
       - start
@@ -91,7 +91,7 @@ services:
     image: postgres:16-alpine
     container_name: football_postgres
     ports:
-      - "5432:5432"
+      - "5434:5432"   # Shifted to 5434 to avoid port 5432 conflict on host
     environment:
       POSTGRES_DB: football_app
       POSTGRES_USER: postgres

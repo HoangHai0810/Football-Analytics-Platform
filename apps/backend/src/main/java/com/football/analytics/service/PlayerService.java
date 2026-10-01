@@ -105,18 +105,28 @@ public class PlayerService {
         addMetric(metricMap, "Shots per 90", s1.getShotsPer90(), s2.getShotsPer90(), p1.getName(), p2.getName());
         addMetric(metricMap, "Pass Accuracy %", s1.getPassCompletionRate(), s2.getPassCompletionRate(), p1.getName(), p2.getName());
         addMetric(metricMap, "Duel Win %", s1.getDuelWinRate(), s2.getDuelWinRate(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Finishing Rating", (double) s1.getFinishingRating(), (double) s2.getFinishingRating(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Creation Rating", (double) s1.getCreationRating(), (double) s2.getCreationRating(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Progression Rating", (double) s1.getProgressionRating(), (double) s2.getProgressionRating(), p1.getName(), p2.getName());
+        Double fin1 = s1.getFinishingRating() != null ? s1.getFinishingRating().doubleValue() : 50.0;
+        Double fin2 = s2.getFinishingRating() != null ? s2.getFinishingRating().doubleValue() : 50.0;
+        addMetric(metricMap, "Finishing Rating", fin1, fin2, p1.getName(), p2.getName());
+
+        Double cre1 = s1.getCreationRating() != null ? s1.getCreationRating().doubleValue() : 50.0;
+        Double cre2 = s2.getCreationRating() != null ? s2.getCreationRating().doubleValue() : 50.0;
+        addMetric(metricMap, "Creation Rating", cre1, cre2, p1.getName(), p2.getName());
+
+        Double pro1 = s1.getProgressionRating() != null ? s1.getProgressionRating().doubleValue() : 50.0;
+        Double pro2 = s2.getProgressionRating() != null ? s2.getProgressionRating().doubleValue() : 50.0;
+        addMetric(metricMap, "Progression Rating", pro1, pro2, p1.getName(), p2.getName());
 
         return new ComparisonDto(playerList, statsList, metricMap);
     }
 
     private void addMetric(Map<String, ComparisonDto.MetricComparison> map, String name,
                            Double v1, Double v2, String name1, String name2) {
-        String leader = v1 > v2 ? name1 : (v2 > v1 ? name2 : "Tied");
-        double diff = Math.round(Math.abs(v1 - v2) * 100.0) / 100.0;
-        map.put(name, new ComparisonDto.MetricComparison(name, v1, v2, leader, diff));
+        double val1 = v1 != null ? v1 : 0.0;
+        double val2 = v2 != null ? v2 : 0.0;
+        String leader = val1 > val2 ? name1 : (val2 > val1 ? name2 : "Tied");
+        double diff = Math.round(Math.abs(val1 - val2) * 100.0) / 100.0;
+        map.put(name, new ComparisonDto.MetricComparison(name, val1, val2, leader, diff));
     }
 }
 

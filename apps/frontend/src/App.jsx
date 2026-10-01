@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from './services/api';
 import Header from './components/Header';
 import MatchCenter from './components/MatchCenter';
 import PlayerIntelligence from './components/PlayerIntelligence';
@@ -15,7 +16,8 @@ export default function App() {
   useEffect(() => {
     // Probe Spring Boot backend health
     async function checkHealth() {
-      const healthUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '') + '/health';
+      const base = api.getBaseUrl ? api.getBaseUrl() : 'http://localhost:8000/api/v1';
+      const healthUrl = base.startsWith('/') ? '/health' : base.replace(/\/api\/v\d+.*$/, '') + '/health';
       try {
         const res = await fetch(healthUrl);
         if (res.ok) {
