@@ -11,11 +11,27 @@ def normalize_event(raw_event: dict, match_id: int) -> dict:
     except (ValueError, AttributeError):
         event_id = str(uuid.uuid4())
 
-    player = raw_event.get("player") or {}
-    player_id = int(player.get("id", 0)) if isinstance(player, dict) else 0
+    raw_pid = raw_event.get("player_id")
+    if raw_pid is not None and str(raw_pid) != "nan":
+        try:
+            player_id = int(float(raw_pid))
+        except (ValueError, TypeError):
+            player_id = 0
+    elif isinstance(raw_event.get("player"), dict):
+        player_id = int(raw_event["player"].get("id", 0))
+    else:
+        player_id = 0
 
-    team = raw_event.get("team") or {}
-    team_id = int(team.get("id", 0)) if isinstance(team, dict) else 0
+    raw_tid = raw_event.get("team_id")
+    if raw_tid is not None and str(raw_tid) != "nan":
+        try:
+            team_id = int(float(raw_tid))
+        except (ValueError, TypeError):
+            team_id = 0
+    elif isinstance(raw_event.get("team"), dict):
+        team_id = int(raw_event["team"].get("id", 0))
+    else:
+        team_id = 0
 
     event_type_obj = raw_event.get("type") or {}
     event_type = event_type_obj.get("name", "UNKNOWN").upper() if isinstance(event_type_obj, dict) else str(raw_event.get("type", "UNKNOWN")).upper()

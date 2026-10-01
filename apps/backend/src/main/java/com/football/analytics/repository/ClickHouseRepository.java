@@ -189,11 +189,11 @@ public class ClickHouseRepository {
     public List<Player> getAllPlayers(String query, String position) {
         List<Player> list = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
-        sql.append("SELECT p.player_id, p.name, p.date_of_birth, p.nationality, p.position, p.preferred_foot, ")
+        sql.append("SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, ")
            .append("coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, coalesce(t.logo_url, '') as avatar_url ")
-           .append("FROM dim_player p ")
-           .append("LEFT JOIN (SELECT player_id, any(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id ")
-           .append("LEFT JOIN dim_team t ON fpm.team_id = t.team_id WHERE 1=1 ");
+           .append("FROM dim_player FINAL p ")
+           .append("LEFT JOIN (SELECT player_id, any(team_id) as team_id FROM fact_player_match FINAL GROUP BY player_id) fpm ON p.player_id = fpm.player_id ")
+           .append("LEFT JOIN dim_team FINAL t ON fpm.team_id = t.team_id WHERE 1=1 ");
 
         if (query != null && !query.isBlank()) {
             String sanitized = query.replace("'", "''").trim().toLowerCase();
@@ -231,11 +231,11 @@ public class ClickHouseRepository {
     }
 
     public Optional<Player> getPlayer(Long id) {
-        String sql = "SELECT p.player_id, p.name, p.date_of_birth, p.nationality, p.position, p.preferred_foot, " +
+        String sql = "SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, " +
                      "coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, coalesce(t.logo_url, '') as avatar_url " +
-                     "FROM dim_player p " +
-                     "LEFT JOIN (SELECT player_id, any(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id " +
-                     "LEFT JOIN dim_team t ON fpm.team_id = t.team_id " +
+                     "FROM dim_player FINAL p " +
+                     "LEFT JOIN (SELECT player_id, any(team_id) as team_id FROM fact_player_match FINAL GROUP BY player_id) fpm ON p.player_id = fpm.player_id " +
+                     "LEFT JOIN dim_team FINAL t ON fpm.team_id = t.team_id " +
                      "WHERE p.player_id = " + id;
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
@@ -265,17 +265,17 @@ public class ClickHouseRepository {
     public List<Match> getAllMatches(Long competitionId, Long seasonId, String status) {
         List<Match> list = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
-        sql.append("SELECT m.match_id, m.competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id, ")
-           .append("m.home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, ")
-           .append("m.away_team_id, coalesce(at.name, 'Away Team') as away_team_name, coalesce(at.logo_url, '') as away_team_logo, ")
+        sql.append("SELECT m.match_id AS match_id, m.competition_id AS competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id AS season_id, ")
+           .append("m.home_team_id AS home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, ")
+           .append("m.away_team_id AS away_team_id, coalesce(at.name, 'Away Team') as away_team_name, coalesce(at.logo_url, '') as away_team_logo, ")
            .append("coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, ")
            .append("coalesce(fm.home_xg, 0.0) as home_xg, coalesce(fm.away_xg, 0.0) as away_xg, ")
-           .append("m.match_date, m.status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance ")
-           .append("FROM dim_match m ")
-           .append("LEFT JOIN fact_match fm ON m.match_id = fm.match_id ")
-           .append("LEFT JOIN dim_competition c ON m.competition_id = c.competition_id ")
-           .append("LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id ")
-           .append("LEFT JOIN dim_team at ON m.away_team_id = at.team_id WHERE 1=1 ");
+           .append("m.match_date AS match_date, m.status AS status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance ")
+           .append("FROM dim_match FINAL m ")
+           .append("LEFT JOIN fact_match FINAL fm ON m.match_id = fm.match_id ")
+           .append("LEFT JOIN dim_competition FINAL c ON m.competition_id = c.competition_id ")
+           .append("LEFT JOIN dim_team FINAL ht ON m.home_team_id = ht.team_id ")
+           .append("LEFT JOIN dim_team FINAL at ON m.away_team_id = at.team_id WHERE 1=1 ");
 
         if (competitionId != null) {
             sql.append(" AND m.competition_id = ").append(competitionId);
@@ -322,17 +322,17 @@ public class ClickHouseRepository {
     }
 
     public Optional<Match> getMatch(Long id) {
-        String sql = "SELECT m.match_id, m.competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id, " +
-                     "m.home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, " +
-                     "m.away_team_id, coalesce(at.name, 'Away Team') as away_team_name, coalesce(at.logo_url, '') as away_team_logo, " +
+        String sql = "SELECT m.match_id AS match_id, m.competition_id AS competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id AS season_id, " +
+                     "m.home_team_id AS home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, " +
+                     "m.away_team_id AS away_team_id, coalesce(at.name, 'Away Team') as away_team_name, coalesce(at.logo_url, '') as away_team_logo, " +
                      "coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, " +
                      "coalesce(fm.home_xg, 0.0) as home_xg, coalesce(fm.away_xg, 0.0) as away_xg, " +
-                     "m.match_date, m.status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance " +
-                     "FROM dim_match m " +
-                     "LEFT JOIN fact_match fm ON m.match_id = fm.match_id " +
-                     "LEFT JOIN dim_competition c ON m.competition_id = c.competition_id " +
-                     "LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id " +
-                     "LEFT JOIN dim_team at ON m.away_team_id = at.team_id " +
+                     "m.match_date AS match_date, m.status AS status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance " +
+                     "FROM dim_match FINAL m " +
+                     "LEFT JOIN fact_match FINAL fm ON m.match_id = fm.match_id " +
+                     "LEFT JOIN dim_competition FINAL c ON m.competition_id = c.competition_id " +
+                     "LEFT JOIN dim_team FINAL ht ON m.home_team_id = ht.team_id " +
+                     "LEFT JOIN dim_team FINAL at ON m.away_team_id = at.team_id " +
                      "WHERE m.match_id = " + id;
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();

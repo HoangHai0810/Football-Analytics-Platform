@@ -179,23 +179,37 @@ def seed():
         for _, ev in events.iterrows():
             raw = ev.to_dict()
 
-            player = raw.get("player") or {}
+            # StatsBomb returns player_id (float/int) and player (str), team_id (float/int) and team (str)
+            raw_pid = raw.get("player_id")
             pid = None
             pname = ""
-            if isinstance(player, dict):
-                pid = player.get("id")
-                pname = player.get("name", "")
-            
-            team = raw.get("team") or {}
-            tid = team.get("id", 0) if isinstance(team, dict) else 0
+            if raw_pid is not None and str(raw_pid) != "nan":
+                try:
+                    pid = int(float(raw_pid))
+                    pname = str(raw.get("player", ""))
+                except (ValueError, TypeError):
+                    pid = None
+            elif isinstance(raw.get("player"), dict):
+                pid = int(raw["player"].get("id", 0))
+                pname = str(raw["player"].get("name", ""))
+
+            raw_tid = raw.get("team_id")
+            if raw_tid is not None and str(raw_tid) != "nan":
+                try:
+                    tid = int(float(raw_tid))
+                except (ValueError, TypeError):
+                    tid = 0
+            elif isinstance(raw.get("team"), dict):
+                tid = int(raw["team"].get("id", 0))
+            else:
+                tid = 0
 
             if pid:
-                pid = int(pid)
                 # Player dims
                 if pid not in player_seen:
                     player_seen.add(pid)
-                    pos = raw.get("position", {})
-                    pos_name = pos.get("name", "FW") if isinstance(pos, dict) else "FW"
+                    pos = raw.get("position", "FW")
+                    pos_name = pos.get("name", "FW") if isinstance(pos, dict) else str(pos or "FW")
                     pos_short = "FW" if "Forward" in pos_name or "Striker" in pos_name or "Wing" in pos_name else ("MF" if "Midfield" in pos_name else ("DF" if "Back" in pos_name else "GK"))
                     client.insert("dim_player",
                         [[pid, pname, None, "Spain", pos_short, "RIGHT"]],
