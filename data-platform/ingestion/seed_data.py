@@ -320,7 +320,7 @@ def seed():
         SELECT
             concat(toString(fpm.player_id), '_', toString(dm.season_id)) as player_season_key,
             fpm.player_id,
-            any(dm.season_id) as season_id,
+            dm.season_id as season_id,
             any(dp.name) as player_name,
             any(dp.position) as position,
             any(dp.nationality) as nationality,
@@ -352,7 +352,7 @@ def seed():
         JOIN dim_match dm ON fpm.match_id = dm.match_id
         LEFT JOIN dim_player dp ON fpm.player_id = dp.player_id
         LEFT JOIN dim_team dt ON fpm.team_id = dt.team_id
-        GROUP BY fpm.player_id;
+        GROUP BY fpm.player_id, dm.season_id;
     """)
     print("🎉 Real DE Data Ingestion & Mart Materialization Complete!")
 
