@@ -360,36 +360,41 @@ def seed():
             coalesce(max(fpm.team_id), 0),
             coalesce(max(dt.name), ''),
             count(DISTINCT fpm.match_id),
-            sum(fpm.minutes),
-            sum(fpm.goals),
-            sum(fpm.assists),
-            sum(fpm.shots),
-            sum(fpm.shots_on_target),
-            sum(fpm.passes),
-            sum(fpm.key_passes),
-            round(sum(fpm.xg)::numeric, 2),
-            round(sum(fpm.xa)::numeric, 2),
-            sum(fpm.tackles),
-            sum(fpm.interceptions),
-            sum(fpm.duels),
-            sum(fpm.pressures),
-            round((sum(fpm.goals)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.assists)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.xg)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.xa)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.shots)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.key_passes)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.tackles)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2),
-            round((sum(fpm.shots_on_target)::numeric / NULLIF(sum(fpm.shots),0) * 100)::numeric, 2)
+            coalesce(sum(fpm.minutes), 0),
+            coalesce(sum(fpm.goals), 0),
+            coalesce(sum(fpm.assists), 0),
+            coalesce(sum(fpm.shots), 0),
+            coalesce(sum(fpm.shots_on_target), 0),
+            coalesce(sum(fpm.passes), 0),
+            coalesce(sum(fpm.key_passes), 0),
+            coalesce(round(sum(fpm.xg)::numeric, 2), 0),
+            coalesce(round(sum(fpm.xa)::numeric, 2), 0),
+            coalesce(sum(fpm.tackles), 0),
+            coalesce(sum(fpm.interceptions), 0),
+            coalesce(sum(fpm.duels), 0),
+            coalesce(sum(fpm.pressures), 0),
+            -- Per-90 stats: COALESCE to 0 when minutes=0 (no division by zero)
+            coalesce(round((sum(fpm.goals)::numeric   / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            coalesce(round((sum(fpm.assists)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            coalesce(round((sum(fpm.xg)::numeric      / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            coalesce(round((sum(fpm.xa)::numeric      / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            coalesce(round((sum(fpm.shots)::numeric   / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            coalesce(round((sum(fpm.key_passes)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            coalesce(round((sum(fpm.tackles)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
+            -- shot_accuracy_pct: 0 when player has no shots at all
+            coalesce(round((sum(fpm.shots_on_target)::numeric / NULLIF(sum(fpm.shots),0) * 100)::numeric, 2), 0)
         FROM fact_player_match fpm
         JOIN dim_match dm ON fpm.match_id = dm.match_id
         LEFT JOIN dim_player dp ON fpm.player_id = dp.player_id
         LEFT JOIN dim_team dt ON fpm.team_id = dt.team_id
         GROUP BY fpm.player_id, dm.season_id
         ON CONFLICT (player_season_key) DO UPDATE
-          SET total_matches=EXCLUDED.total_matches, total_goals=EXCLUDED.total_goals,
-              total_assists=EXCLUDED.total_assists, total_xg=EXCLUDED.total_xg,
-              goals_per_90=EXCLUDED.goals_per_90, xg_per_90=EXCLUDED.xg_per_90
+          SET total_matches=EXCLUDED.total_matches,      total_goals=EXCLUDED.total_goals,
+              total_assists=EXCLUDED.total_assists,      total_xg=EXCLUDED.total_xg,
+              total_shots=EXCLUDED.total_shots,          total_passes=EXCLUDED.total_passes,
+              goals_per_90=EXCLUDED.goals_per_90,        xg_per_90=EXCLUDED.xg_per_90,
+              assists_per_90=EXCLUDED.assists_per_90,    shot_accuracy_pct=EXCLUDED.shot_accuracy_pct,
+              shots_per_90=EXCLUDED.shots_per_90,        tackles_per_90=EXCLUDED.tackles_per_90
     """)
     conn.commit()
     print("🎉 PostgreSQL Data Ingestion & Mart Materialization Complete!")
