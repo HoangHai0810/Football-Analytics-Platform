@@ -12,7 +12,6 @@
 databases:
   - name: football-postgres
     databaseName: football_analytics
-    user: postgres
     plan: free
     region: singapore
     ipAllowList: [] # Allow external connections (e.g. GitHub Actions cron data pipeline)
@@ -57,10 +56,7 @@ services:
       - key: PG_SSL
         value: "true"
       - key: FRONTEND_URL
-        fromService:
-          type: web
-          name: football-analytics-frontend
-          property: url
+        value: https://football-analytics-frontend.onrender.com
 
   # ----------------------------------------------------------------------------
   # 2. Frontend Web App (React 18 + Vite SPA - Static Site CDN)
@@ -80,4 +76,4 @@ services:
         fromService:
           type: web
           name: football-analytics-backend
-          property: url
+          property: host
