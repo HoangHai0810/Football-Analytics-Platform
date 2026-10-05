@@ -39,8 +39,14 @@ CREATE TABLE IF NOT EXISTS dim_player (
     nationality     TEXT NOT NULL DEFAULT '',
     position        TEXT NOT NULL DEFAULT 'MF',
     preferred_foot  TEXT NOT NULL DEFAULT 'RIGHT',
+    jersey_number   INTEGER NOT NULL DEFAULT 10,
+    avatar_url      TEXT NOT NULL DEFAULT '',
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Idempotent column additions for existing deployments
+ALTER TABLE dim_player ADD COLUMN IF NOT EXISTS jersey_number INTEGER NOT NULL DEFAULT 10;
+ALTER TABLE dim_player ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS dim_match (
     match_id        BIGINT PRIMARY KEY,

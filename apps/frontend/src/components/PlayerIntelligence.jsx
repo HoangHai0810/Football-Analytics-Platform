@@ -108,7 +108,15 @@ export default function PlayerIntelligence({ onComparePlayer }) {
                   }}
                 >
                   <div className="player-card-header">
-                    <img src={p.avatar_url} alt={p.name} className="player-avatar" />
+                    <img
+                      src={p.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=0f172a&color=38bdf8&bold=true`}
+                      alt={p.name}
+                      className="player-avatar"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=0f172a&color=38bdf8&bold=true`;
+                      }}
+                    />
                     <div>
                       <div className="player-name-text">{p.name}</div>
                       <div className="player-meta-info">
@@ -136,9 +144,13 @@ export default function PlayerIntelligence({ onComparePlayer }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                 <img
-                  src={selectedPlayer.avatar_url}
+                  src={selectedPlayer.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedPlayer.name)}&background=0f172a&color=38bdf8&bold=true`}
                   alt={selectedPlayer.name}
                   style={{ width: '72px', height: '72px', borderRadius: 'var(--radius-md)', objectFit: 'cover', border: '3px solid #10b981' }}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedPlayer.name)}&background=0f172a&color=38bdf8&bold=true`;
+                  }}
                 />
                 <div>
                   <h2 style={{ fontSize: '24px', fontWeight: 800, color: '#fff' }}>{selectedPlayer.name}</h2>

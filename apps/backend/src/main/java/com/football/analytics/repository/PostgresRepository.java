@@ -189,8 +189,9 @@ public class PostgresRepository {
         List<Player> list = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, ")
+           .append("coalesce(p.jersey_number, 10) as jersey_number, ")
            .append("coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, ")
-           .append("'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true' as avatar_url ")
+           .append("coalesce(nullif(p.avatar_url, ''), 'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true') as avatar_url ")
            .append("FROM dim_player p ")
            .append("LEFT JOIN (SELECT player_id, max(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id ")
            .append("LEFT JOIN dim_team t ON fpm.team_id = t.team_id WHERE 1=1 ");
@@ -220,7 +221,7 @@ public class PostgresRepository {
                     rs.getString("nationality"),
                     rs.getString("position"),
                     rs.getString("preferred_foot"),
-                    10,
+                    rs.getInt("jersey_number"),
                     rs.getString("avatar_url")
                 ));
             }
@@ -232,8 +233,9 @@ public class PostgresRepository {
 
     public Optional<Player> getPlayer(Long id) {
         String sql = "SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, " +
+                     "coalesce(p.jersey_number, 10) as jersey_number, " +
                      "coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, " +
-                     "'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true' as avatar_url " +
+                     "coalesce(nullif(p.avatar_url, ''), 'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true') as avatar_url " +
                      "FROM dim_player p " +
                      "LEFT JOIN (SELECT player_id, max(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id " +
                      "LEFT JOIN dim_team t ON fpm.team_id = t.team_id " +
@@ -253,7 +255,7 @@ public class PostgresRepository {
                     rs.getString("nationality"),
                     rs.getString("position"),
                     rs.getString("preferred_foot"),
-                    10,
+                    rs.getInt("jersey_number"),
                     rs.getString("avatar_url")
                 ));
             }
@@ -488,6 +490,24 @@ public class PostgresRepository {
             log.debug("mart extraction failed: {}", e.getMessage());
         }
         return Optional.empty();
+    }
+
+    private void calculateRadarRatings(PlayerSeasonStats stats) {
+        double g90 = stats.getGoalsPer90() != null ? stats.getGoalsPer90() : 0.0;
+        double a90 = stats.getAssistsPer90() != null ? stats.getAssistsPer90() : 0.0;
+        double xg90 = stats.getXgPer90() != null ? stats.getXgPer90() : 0.0;
+        int kp = stats.getKeyPasses() != null ? stats.getKeyPasses() : 0;
+        int tkl = stats.getTackles() != null ? stats.getTackles() : 0;
+        int p = stats.getPressures() != null ? stats.getPressures() : 0;
+        int passes = stats.getPasses() != null ? stats.getPasses() : 0;
+        int duels = stats.getDuels() != null ? stats.getDuels() : 0;
+
+        stats.setFinishingRating(Math.min(99, Math.max(50, (int) (g90 * 65.0 + xg90 * 30.0 + 40))));
+        stats.setCreationRating(Math.min(99, Math.max(50, (int) (a90 * 60.0 + kp * 0.8 + 45))));
+        stats.setProgressionRating(Math.min(99, Math.max(50, (int) (passes * 0.04 + 50))));
+        stats.setPressingRating(Math.min(99, Math.max(50, (int) (p * 0.25 + 45))));
+        stats.setDefendingRating(Math.min(99, Math.max(40, (int) (tkl * 1.5 + 40))));
+        stats.setAerialRating(Math.min(99, Math.max(45, (int) (duels * 0.2 + 50))));
     }
 
     public List<ShotEvent> getPlayerShots(Long playerId, Long seasonId) {
