@@ -214,6 +214,12 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
         """, (match_id, int(m["home_team_id"]), int(m["away_team_id"]),
                home_score, away_score, home_xg, away_xg, 65400, 90))
 
+        # Check if match events already ingested to avoid re-downloading
+        cur.execute("SELECT 1 FROM fact_player_match WHERE match_id = %s LIMIT 1", (match_id,))
+        if cur.fetchone():
+            print(f"  ⏩ Match {match_id}: {m['home_team']} vs {m['away_team']} (already ingested, skipping)")
+            continue
+
         print(f"  ⚽ Match {match_id}: {m['home_team']} vs {m['away_team']}")
 
         # Events + Players

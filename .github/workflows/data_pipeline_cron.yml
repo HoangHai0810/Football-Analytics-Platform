@@ -2,9 +2,18 @@ name: Automated Football Data Pipeline
 
 on:
   schedule:
-    # Runs every day at 02:00 UTC (09:00 AM ICT)
-    - cron: '0 2 * * *'
-  workflow_dispatch: # Allows manual trigger from GitHub UI anytime
+    # Runs every 4 hours to sync live/recent match scores & upcoming fixtures
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Chế độ đồng bộ dữ liệu (Ingestion Mode)'
+        required: true
+        default: 'rolling_sync'
+        type: choice
+        options:
+          - 'rolling_sync (Cửa sổ trượt 48h - Trận đấu mới nhất, siêu nhanh)'
+          - 'full_backfill (Nạp toàn bộ lịch sử StatsBomb 2015-nay)'
 
 jobs:
   ingest-and-transform:
@@ -83,11 +92,19 @@ jobs:
           PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
           PG_SSL: ${{ secrets.PG_SSL || 'true' }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          INGESTION_MODE: ${{ github.event.inputs.mode || 'rolling_sync' }}
         run: |
           echo "🚀 Starting automated ingestion pipeline..."
-          # Strip any accidental newlines/carriage returns/spaces from pasted secrets
           export DATABASE_URL="$(echo -n "$DATABASE_URL" | tr -d '\r\n ')"
           export PG_HOST="$(echo -n "$PG_HOST" | tr -d '\r\n ')"
           export PG_PORT="$(echo -n "$PG_PORT" | tr -d '\r\n ')"
-          python -u data-platform/ingestion/seed_data.py
-          echo "✅ Ingestion pipeline completed successfully!"
+
+          if [[ "$INGESTION_MODE" == *"full_backfill"* ]]; then
+            echo "🌍 [MODE: FULL BACKFILL] Ingesting all StatsBomb historical seasons (2015-present)..."
+            python -u data-platform/ingestion/seed_data.py
+          else
+            echo "⚡ [MODE: ROLLING SYNC] Synchronizing recent 48h live & finished matches..."
+            python -u data-platform/ingestion/sync_recent_matches.py
+          fi
+
+          echo "✅ Ingestion pipeline step completed successfully!"
