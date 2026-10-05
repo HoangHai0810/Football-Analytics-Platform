@@ -19,10 +19,59 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libpq-dev openssl ca-certificates
+
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install psycopg2-binary statsbombpy httpx pandas python-dotenv
+          pip install "psycopg2-binary>=2.9" statsbombpy httpx pandas python-dotenv
+
+      - name: Validate Secrets & Pre-flight Connectivity Check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PG_HOST: ${{ secrets.PG_HOST }}
+          PG_PORT: ${{ secrets.PG_PORT || '5432' }}
+        run: |
+          # Sanitize secrets
+          CLEAN_URL="$(echo -n "$DATABASE_URL" | tr -d '\r\n ')"
+          CLEAN_HOST="$(echo -n "$PG_HOST" | tr -d '\r\n ')"
+          CLEAN_PORT="$(echo -n "$PG_PORT" | tr -d '\r\n ')"
+
+          # Validate at least one connection method is configured
+          if [ -z "$CLEAN_URL" ] && [ -z "$CLEAN_HOST" ]; then
+            echo "❌ ERROR: No PostgreSQL connection configured!"
+            echo "   Add DATABASE_URL (External URL from Render/Neon/Supabase) to GitHub Secrets."
+            echo "   ⚠️  IMPORTANT: Use the EXTERNAL Database URL, not the internal one!"
+            echo "   On Render: Dashboard → Your DB → 'External Database URL'"
+            exit 1
+          fi
+
+          # Extract host from DATABASE_URL if PG_HOST not set
+          if [ -n "$CLEAN_URL" ]; then
+            CONN_HOST=$(python3 -c "from urllib.parse import urlparse; p=urlparse('$CLEAN_URL'); print(p.hostname or '')" 2>/dev/null || echo "")
+            CONN_PORT=$(python3 -c "from urllib.parse import urlparse; p=urlparse('$CLEAN_URL'); print(p.port or 5432)" 2>/dev/null || echo "5432")
+          else
+            CONN_HOST="$CLEAN_HOST"
+            CONN_PORT="${CLEAN_PORT:-5432}"
+          fi
+
+          echo "🌐 Target host: $CONN_HOST:$CONN_PORT"
+
+          # Test TCP connectivity
+          if ! timeout 10 bash -c "echo > /dev/tcp/$CONN_HOST/$CONN_PORT" 2>/dev/null; then
+            echo "❌ TCP connection to $CONN_HOST:$CONN_PORT failed!"
+            echo "   This usually means you're using an INTERNAL hostname that only works within Render's network."
+            echo "   Fix: Use the EXTERNAL Database URL from your Render Postgres dashboard."
+            exit 1
+          fi
+          echo "✅ TCP connection to $CONN_HOST:$CONN_PORT OK"
+
+          # Test SSL handshake
+          echo "" | timeout 10 openssl s_client -connect "$CONN_HOST:$CONN_PORT" -starttls postgres 2>&1 | head -5 || true
+          echo "✅ Pre-flight checks passed"
 
       - name: Run Data Ingestion & PostgreSQL Population
         env:
@@ -36,8 +85,9 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           echo "🚀 Starting automated ingestion pipeline..."
-          # Strip any accidental newlines or carriage returns from pasted secrets
+          # Strip any accidental newlines/carriage returns/spaces from pasted secrets
           export DATABASE_URL="$(echo -n "$DATABASE_URL" | tr -d '\r\n ')"
           export PG_HOST="$(echo -n "$PG_HOST" | tr -d '\r\n ')"
+          export PG_PORT="$(echo -n "$PG_PORT" | tr -d '\r\n ')"
           python -u data-platform/ingestion/seed_data.py
           echo "✅ Ingestion pipeline completed successfully!"

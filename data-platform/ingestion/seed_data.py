@@ -54,16 +54,29 @@ TEAM_LOGOS = {
 def get_conn():
     if DATABASE_URL:
         url = DATABASE_URL
-        # Automatically append sslmode=require for cloud-hosted databases if not already present
-        if "sslmode=" not in url and any(domain in url for domain in (".render.com", ".neon.tech", ".supabase.co")):
+        # Parse host from URL to determine if it's remote
+        # Format: postgresql://user:pass@host:port/db
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            host_part = parsed.hostname or ""
+        except Exception:
+            host_part = ""
+        is_local_url = host_part in ("localhost", "127.0.0.1", "postgres", "")
+        # Add sslmode=require for all remote hosts (not just specific domains)
+        if "sslmode=" not in url and not is_local_url:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}sslmode=require"
-        return psycopg2.connect(url, connect_timeout=20)
+        print(f"🔐 SSL mode in URL: {'sslmode=require' if 'sslmode=require' in url else 'not set'}")
+        print(f"🌐 Connecting to host: {host_part}")
+        return psycopg2.connect(url, connect_timeout=30)
 
     # Determine SSL mode:
-    # If host is remote (e.g. Render, Neon, Supabase) or PG_SSL explicitly requested, require SSL
+    # If host is remote or PG_SSL explicitly requested, require SSL
     is_local = PG_HOST in ("localhost", "127.0.0.1", "postgres")
     sslmode = "require" if (PG_SSL in ("true", "1", "yes", "require") or not is_local) else "prefer"
+    print(f"🔐 SSL mode: {sslmode}")
+    print(f"🌐 Connecting to host: {PG_HOST}:{PG_PORT} db={PG_DB}")
 
     return psycopg2.connect(
         host=PG_HOST,
@@ -72,7 +85,7 @@ def get_conn():
         user=PG_USER,
         password=PG_PASSWORD,
         sslmode=sslmode,
-        connect_timeout=20,
+        connect_timeout=30,
     )
 
 
