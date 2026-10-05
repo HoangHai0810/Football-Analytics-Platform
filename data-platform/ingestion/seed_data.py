@@ -29,13 +29,14 @@ try:
 except ModuleNotFoundError:
     from transformers.event_normalizer import normalize_event
 
-DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
-PG_HOST      = os.getenv("PG_HOST", "").strip()
-PG_PORT      = int(os.getenv("PG_PORT", "5432"))
-PG_DB        = os.getenv("PG_DB", "football_analytics").strip()
-PG_USER      = os.getenv("PG_USER", "postgres").strip()
+DATABASE_URL = "".join((os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "").strip().strip("'\"").split())
+PG_HOST      = "".join(os.getenv("PG_HOST", "").strip().strip("'\"").split())
+PG_PORT_RAW  = "".join(os.getenv("PG_PORT", "5432").strip().split())
+PG_PORT      = int(PG_PORT_RAW) if PG_PORT_RAW.isdigit() else 5432
+PG_DB        = "".join(os.getenv("PG_DB", "football_analytics").strip().strip("'\"").split())
+PG_USER      = "".join(os.getenv("PG_USER", "postgres").strip().strip("'\"").split())
 PG_PASSWORD  = os.getenv("PG_PASSWORD", "").strip()
-PG_SSL       = os.getenv("PG_SSL", "").strip().lower()
+PG_SSL       = "".join(os.getenv("PG_SSL", "").strip().lower().split())
 
 COMPETITION_ID = 11   # La Liga
 SEASON_ID = 27        # 2015/2016
@@ -52,7 +53,12 @@ TEAM_LOGOS = {
 
 def get_conn():
     if DATABASE_URL:
-        return psycopg2.connect(DATABASE_URL, connect_timeout=15)
+        url = DATABASE_URL
+        # Automatically append sslmode=require for cloud-hosted databases if not already present
+        if "sslmode=" not in url and any(domain in url for domain in (".render.com", ".neon.tech", ".supabase.co")):
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}sslmode=require"
+        return psycopg2.connect(url, connect_timeout=20)
 
     # Determine SSL mode:
     # If host is remote (e.g. Render, Neon, Supabase) or PG_SSL explicitly requested, require SSL
@@ -66,7 +72,7 @@ def get_conn():
         user=PG_USER,
         password=PG_PASSWORD,
         sslmode=sslmode,
-        connect_timeout=15,
+        connect_timeout=20,
     )
 
 

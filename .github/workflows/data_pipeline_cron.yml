@@ -36,5 +36,8 @@ jobs:
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           echo "🚀 Starting automated ingestion pipeline..."
+          # Strip any accidental newlines or carriage returns from pasted secrets
+          export DATABASE_URL="$(echo -n "$DATABASE_URL" | tr -d '\r\n ')"
+          export PG_HOST="$(echo -n "$PG_HOST" | tr -d '\r\n ')"
           python -u data-platform/ingestion/seed_data.py
           echo "✅ Ingestion pipeline completed successfully!"
