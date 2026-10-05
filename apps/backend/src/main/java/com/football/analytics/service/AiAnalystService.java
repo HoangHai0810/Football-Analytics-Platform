@@ -1,4 +1,4 @@
-﻿package com.football.analytics.service;
+package com.football.analytics.service;
 
 import com.football.analytics.dto.AiAnalysisRequest;
 import com.football.analytics.dto.AiAnalysisResponse;

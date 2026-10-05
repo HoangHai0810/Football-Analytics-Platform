@@ -9,7 +9,6 @@ on:
 jobs:
   ingest-and-transform:
     runs-on: ubuntu-latest
-    environment: PG_HOST
 
     steps:
       - name: Checkout Repository

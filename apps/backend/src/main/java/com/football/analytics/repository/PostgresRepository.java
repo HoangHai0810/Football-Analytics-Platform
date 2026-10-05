@@ -1,4 +1,4 @@
-﻿package com.football.analytics.repository;
+package com.football.analytics.repository;
 
 import com.football.analytics.model.*;
 import org.slf4j.Logger;

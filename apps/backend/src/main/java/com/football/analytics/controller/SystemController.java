@@ -1,4 +1,4 @@
-﻿package com.football.analytics.controller;
+package com.football.analytics.controller;
 
 import com.football.analytics.dto.ApiResponse;
 import com.football.analytics.dto.SystemStatusDto;

@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- Football Analytics — PostgreSQL Analytics Schema
 -- Replaces ClickHouse ReplacingMergeTree tables with standard
 -- PostgreSQL tables using PRIMARY KEY + ON CONFLICT for upsert.
