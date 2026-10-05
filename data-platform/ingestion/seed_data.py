@@ -1,6 +1,6 @@
 """
 Seed Data Script — Real Data Ingestion via PostgreSQL (psycopg2)
-Loads StatsBomb open data (La Liga 2015/2016) into PostgreSQL.
+Loads ALL StatsBomb open-data competitions from 2015 onwards into PostgreSQL.
 Populates:
   - dim_competition, dim_season, dim_team, dim_player, dim_match
   - fact_match, fact_event, fact_player_match
@@ -38,9 +38,10 @@ PG_USER      = "".join(os.getenv("PG_USER", "postgres").strip().strip("'\"").spl
 PG_PASSWORD  = os.getenv("PG_PASSWORD", "").strip()
 PG_SSL       = "".join(os.getenv("PG_SSL", "").strip().lower().split())
 
-COMPETITION_ID = 11   # La Liga
-SEASON_ID = 27        # 2015/2016
-MAX_MATCHES = 10      # Seed 10 matches for quick start
+# Max matches to seed per competition-season để giữ runtime hợp lý.
+# Tăng lên nếu muốn nhiều dữ liệu hơn (vd: 38 cho full season).
+MAX_MATCHES_PER_SEASON = int(os.getenv("MAX_MATCHES_PER_SEASON", "10"))
+MIN_SEASON_YEAR = int(os.getenv("MIN_SEASON_YEAR", "2015"))
 
 TEAM_LOGOS = {
     217: "https://crests.football-data.org/81.png",
@@ -49,6 +50,54 @@ TEAM_LOGOS = {
     206: "https://crests.football-data.org/559.png",
     213: "https://crests.football-data.org/558.png",
 }
+
+
+def build_catalog():
+    """
+    Tự động lấy toàn bộ competition từ StatsBomb open-data API,
+    lọc lấy các season từ MIN_SEASON_YEAR trở đi.
+    Trả về list of tuples: (competition_id, season_id, competition_name, season_name, comp_type)
+    """
+    import re
+    print(f"📡 Fetching StatsBomb competition catalog (seasons >= {MIN_SEASON_YEAR})...")
+    all_comps = sb.competitions()
+
+    # Xác định loại giải dựa trên tên competition
+    def infer_type(comp_name: str, gender: str) -> str:
+        name_lower = comp_name.lower()
+        if any(k in name_lower for k in ["world cup", "euro", "copa america", "afcon",
+                                          "african cup", "nations league", "olympics"]):
+            return "INTERNATIONAL"
+        if any(k in name_lower for k in ["champions league", "europa league", "fa cup",
+                                          "copa del rey", "dfb-pokal"]):
+            return "CUP"
+        return "LEAGUE"
+
+    # Trích năm từ tên season: "2015/2016" → 2015, "2023" → 2023
+    def extract_year(season_name: str) -> int:
+        years = re.findall(r"\d{4}", str(season_name))
+        return int(years[0]) if years else 0
+
+    catalog = []
+    for _, row in all_comps.iterrows():
+        year = extract_year(row["season_name"])
+        if year < MIN_SEASON_YEAR:
+            continue
+        comp_type = infer_type(str(row["competition_name"]), str(row.get("competition_gender", "")))
+        catalog.append((
+            int(row["competition_id"]),
+            int(row["season_id"]),
+            str(row["competition_name"]),
+            str(row["season_name"]),
+            comp_type,
+        ))
+
+    # Sắp xếp: theo tên giải rồi năm
+    catalog.sort(key=lambda x: (x[2], x[3]))
+    print(f"✅ Found {len(catalog)} competition-seasons từ {MIN_SEASON_YEAR} trở đi.")
+    return catalog
+
+
 
 
 def get_conn():
@@ -100,63 +149,24 @@ def init_schema(cur):
         print(f"⚠️  Schema file not found: {sql_path}")
 
 
-def seed():
-    if not DATABASE_URL and not PG_HOST:
-        print("=" * 60)
-        print("❌ LỖI: Chưa cấu hình kết nối PostgreSQL!")
-        print("   Vui lòng vào GitHub: Settings -> Secrets and variables -> Actions")
-        print("   Thêm một trong 2 cách sau vào 'Repository secrets':")
-        print("   👉 Cách 1 (Khuyên dùng Render/Neon/Supabase):")
-        print("      - DATABASE_URL: postgresql://user:pass@host:5432/dbname")
-        print("   👉 Cách 2 (Từng trường riêng lẻ):")
-        print("      - PG_HOST: (vd: dpg-xxxx.singapore-postgres.render.com)")
-        print("      - PG_PASSWORD: ...")
-        print("      - PG_USER: postgres")
-        print("      - PG_DB: football_analytics")
-        print("=" * 60)
-        sys.exit(1)
+def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type):
+    """Seed one competition-season: teams, matches, events, player match stats."""
+    from datetime import datetime
 
-    if DATABASE_URL:
-        print(f"📡 Connecting to PostgreSQL via DATABASE_URL...")
-    else:
-        print(f"📡 Connecting to PostgreSQL at {PG_HOST}:{PG_PORT} db={PG_DB}...")
+    print(f"\n{'='*60}")
+    print(f"📋 {comp_name} — {season_name}  (comp={comp_id}, season={season_id})")
+    print(f"{'='*60}")
 
-    conn = get_conn()
-    conn.autocommit = False
-    cur = conn.cursor()
-    print("✅ Connected to PostgreSQL successfully.")
+    try:
+        matches_df = sb.matches(competition_id=comp_id, season_id=season_id)
+    except Exception as e:
+        print(f"  ⚠️  Could not fetch matches: {e}")
+        return 0
 
-    init_schema(cur)
-    conn.commit()
-
-    from datetime import date, datetime
-
-    # 1. Competition & Season
-    competitions = sb.competitions()
-    la_liga = competitions[competitions["competition_id"] == COMPETITION_ID].iloc[0]
-
-    cur.execute("""
-        INSERT INTO dim_competition (competition_id, name, country, type)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (competition_id) DO UPDATE
-          SET name=EXCLUDED.name, country=EXCLUDED.country, type=EXCLUDED.type, updated_at=NOW()
-    """, (int(la_liga["competition_id"]), str(la_liga["competition_name"]),
-          str(la_liga["country_name"]), "LEAGUE"))
-    print(f"✅ Upserted competition: {la_liga['competition_name']}")
-
-    cur.execute("""
-        INSERT INTO dim_season (season_id, competition_id, name, start_date, end_date)
-        VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (competition_id, season_id) DO UPDATE
-          SET name=EXCLUDED.name, updated_at=NOW()
-    """, (int(SEASON_ID), int(COMPETITION_ID), "2015/2016",
-          date(2015, 8, 21), date(2016, 5, 15)))
-    print("✅ Upserted season: 2015/2016")
-    conn.commit()
-
-    # 2. Matches
-    matches_df = sb.matches(competition_id=COMPETITION_ID, season_id=SEASON_ID)
-    matches_df = matches_df.head(MAX_MATCHES)
+    matches_df = matches_df.head(MAX_MATCHES_PER_SEASON)
+    if matches_df.empty:
+        print("  ⚠️  No matches found, skipping.")
+        return 0
 
     all_player_matches = {}
 
@@ -173,10 +183,10 @@ def seed():
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (team_id) DO UPDATE
                   SET name=EXCLUDED.name, updated_at=NOW()
-            """, (t_id, t_name, str(la_liga["country_name"]), "Estadio " + t_name, logo))
+            """, (t_id, t_name, comp_name, "Stadium of " + t_name, logo))
 
         # dim_match
-        m_date_str = str(m["match_date"])
+        m_date_str = str(m.get("match_date", ""))
         try:
             m_dt = datetime.strptime(m_date_str, "%Y-%m-%d")
         except Exception:
@@ -187,7 +197,7 @@ def seed():
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (match_id) DO UPDATE
               SET status=EXCLUDED.status, updated_at=NOW()
-        """, (match_id, COMPETITION_ID, SEASON_ID,
+        """, (match_id, comp_id, season_id,
                int(m["home_team_id"]), int(m["away_team_id"]), m_dt, "FINISHED"))
 
         # fact_match
@@ -206,8 +216,14 @@ def seed():
 
         print(f"  ⚽ Match {match_id}: {m['home_team']} vs {m['away_team']}")
 
-        # 3. Events + Players
-        events = sb.events(match_id=match_id, split=False, flatten_attrs=False)
+        # Events + Players
+        try:
+            events = sb.events(match_id=match_id, split=False, flatten_attrs=False)
+        except Exception as e:
+            print(f"    ⚠️  Could not fetch events: {e}")
+            conn.commit()
+            continue
+
         event_rows = []
         player_seen = set()
 
@@ -251,7 +267,7 @@ def seed():
                         VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (player_id) DO UPDATE
                           SET name=EXCLUDED.name, position=EXCLUDED.position, updated_at=NOW()
-                    """, (pid, pname, None, "Spain", pos_short, "RIGHT"))
+                    """, (pid, pname, None, comp_name, pos_short, "RIGHT"))
 
                 pm_key = (match_id, pid)
                 if pm_key not in all_player_matches:
@@ -317,7 +333,7 @@ def seed():
 
         conn.commit()
 
-    # 4. fact_player_match
+    # fact_player_match for this season
     if all_player_matches:
         fpm_rows = [(
             pm["match_id"], pm["player_id"], pm["team_id"],
@@ -337,10 +353,14 @@ def seed():
                   passes=EXCLUDED.passes, xg=EXCLUDED.xg, xa=EXCLUDED.xa
         """, fpm_rows)
         conn.commit()
-        print(f"✅ Upserted {len(fpm_rows)} player match records")
+        print(f"  ✅ {len(fpm_rows)} player-match records upserted")
 
-    # 5. Materialize mart_player_season_stats
-    print("🚀 Materializing mart_player_season_stats...")
+    return len(matches_df)
+
+
+def materialize_mart(cur, conn):
+    """Rebuild mart_player_season_stats from all fact_player_match data."""
+    print("\n🔄 Materializing mart_player_season_stats (all competitions)...")
     cur.execute("""
         INSERT INTO mart_player_season_stats (
             player_season_key, player_id, season_id, player_name, position, nationality,
@@ -373,7 +393,6 @@ def seed():
             coalesce(sum(fpm.interceptions), 0),
             coalesce(sum(fpm.duels), 0),
             coalesce(sum(fpm.pressures), 0),
-            -- Per-90 stats: COALESCE to 0 when minutes=0 (no division by zero)
             coalesce(round((sum(fpm.goals)::numeric   / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
             coalesce(round((sum(fpm.assists)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
             coalesce(round((sum(fpm.xg)::numeric      / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
@@ -381,7 +400,6 @@ def seed():
             coalesce(round((sum(fpm.shots)::numeric   / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
             coalesce(round((sum(fpm.key_passes)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
             coalesce(round((sum(fpm.tackles)::numeric / NULLIF(sum(fpm.minutes),0) * 90)::numeric, 2), 0),
-            -- shot_accuracy_pct: 0 when player has no shots at all
             coalesce(round((sum(fpm.shots_on_target)::numeric / NULLIF(sum(fpm.shots),0) * 100)::numeric, 2), 0)
         FROM fact_player_match fpm
         JOIN dim_match dm ON fpm.match_id = dm.match_id
@@ -397,7 +415,73 @@ def seed():
               shots_per_90=EXCLUDED.shots_per_90,        tackles_per_90=EXCLUDED.tackles_per_90
     """)
     conn.commit()
-    print("🎉 PostgreSQL Data Ingestion & Mart Materialization Complete!")
+    print("✅ mart_player_season_stats materialized.")
+
+
+def seed():
+    if not DATABASE_URL and not PG_HOST:
+        print("=" * 60)
+        print("❌ LỖI: Chưa cấu hình kết nối PostgreSQL!")
+        print("   Vui lòng vào GitHub: Settings -> Secrets and variables -> Actions")
+        print("   Thêm DATABASE_URL: postgresql://user:pass@host:5432/dbname")
+        print("=" * 60)
+        sys.exit(1)
+
+    if DATABASE_URL:
+        print("📡 Connecting to PostgreSQL via DATABASE_URL...")
+    else:
+        print(f"📡 Connecting to PostgreSQL at {PG_HOST}:{PG_PORT} db={PG_DB}...")
+
+    conn = get_conn()
+    conn.autocommit = False
+    cur = conn.cursor()
+    print("✅ Connected to PostgreSQL successfully.")
+
+    init_schema(cur)
+    conn.commit()
+
+    from datetime import date
+
+    total_matches = 0
+    failed = []
+
+    catalog = build_catalog()
+    print(f"\n🌍 Seeding {len(catalog)} competition-seasons "
+          f"({MAX_MATCHES_PER_SEASON} matches each)...")
+
+    for (comp_id, season_id, comp_name, season_name, comp_type) in catalog:
+        # Upsert competition
+        cur.execute("""
+            INSERT INTO dim_competition (competition_id, name, country, type)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (competition_id) DO UPDATE
+              SET name=EXCLUDED.name, type=EXCLUDED.type, updated_at=NOW()
+        """, (comp_id, comp_name, comp_name, comp_type))
+
+        # Upsert season
+        cur.execute("""
+            INSERT INTO dim_season (season_id, competition_id, name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (competition_id, season_id) DO UPDATE
+              SET name=EXCLUDED.name, updated_at=NOW()
+        """, (season_id, comp_id, season_name))
+        conn.commit()
+
+        try:
+            n = seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type)
+            total_matches += n
+        except Exception as e:
+            print(f"  ❌ Failed to seed {comp_name} {season_name}: {e}")
+            conn.rollback()
+            failed.append(f"{comp_name} {season_name}")
+
+    materialize_mart(cur, conn)
+
+    print(f"\n{'='*60}")
+    print(f"🎉 Ingestion complete! {total_matches} matches across {len(catalog)} competition-seasons.")
+    if failed:
+        print(f"⚠️  {len(failed)} season(s) failed: {', '.join(failed)}")
+    print(f"{'='*60}")
 
     cur.close()
     conn.close()

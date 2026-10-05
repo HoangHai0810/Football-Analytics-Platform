@@ -5,12 +5,12 @@ export default function AiAnalystChat() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: "Xin chào! Tôi là **Trợ lý Phân tích Bóng đá AI (PitchPulse Analyst)**. Mọi phân tích và con số của tôi đều được trích xuất xác thực từ kho dữ liệu ClickHouse OLAP, tuân thủ nguyên tắc **Zero-Hallucination** (Không bịa đặt số liệu).\n\nBạn có thể hỏi tôi về chỉ số xG, so sánh cầu thủ, phong độ ghi bàn hoặc chọn gợi ý bên dưới:",
+      content: "Xin chào! Tôi là **Trợ lý Phân tích Bóng đá AI (PitchPulse Analyst)**. Mọi phân tích và con số của tôi đều được trích xuất xác thực từ kho dữ liệu phân tích thống kê chuyên sâu, tuân thủ nguyên tắc **Zero-Hallucination** (Tuyệt đối không bịa đặt số liệu).\n\nBạn có thể hỏi tôi về chỉ số xG, so sánh cầu thủ, phong độ ghi bàn hoặc chọn gợi ý bên dưới:",
       grounded_facts: [
-        "Kết nối trực tiếp ClickHouse analytical marts (mart_player_season_stats).",
-        "Tất cả chỉ số per-90 và tỷ lệ chuyển hóa cơ hội đã được DE tiền tính toán."
+        "Truy vấn trực tiếp số liệu thống kê chi tiết theo mùa giải và trận đấu.",
+        "Tất cả chỉ số per-90, tỷ lệ chuyển hóa cơ hội và xG/xA đều được tính toán chuẩn xác."
       ],
-      data_source: "ClickHouse OLAP Layer"
+      data_source: "StatsBomb Verified Analytics"
     }
   ]);
   const [inputQuery, setInputQuery] = useState('');
@@ -70,7 +70,7 @@ export default function AiAnalystChat() {
             <span>🧠</span> AI Football Analyst
           </h1>
           <p className="section-subtitle">
-            Natural language tactical intelligence grounded in verified ClickHouse data with zero hallucination
+            Trí tuệ nhân tạo phân tích chiến thuật và chỉ số cầu thủ dựa trên dữ liệu thống kê xác thực
           </p>
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function AiAnalystChat() {
             >
               {!isUser && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#c084fc', fontWeight: 700, fontSize: '12px' }}>
-                  <span>🤖</span> PITCHPULSE AI ANALYST &nbsp;|&nbsp; Source: {m.data_source || 'ClickHouse Star Schema'}
+                  <span>🤖</span> PITCHPULSE AI ANALYST &nbsp;|&nbsp; Nguồn dữ liệu: {m.data_source || 'StatsBomb Verified Analytics'}
                 </div>
               )}
 
@@ -130,7 +130,7 @@ export default function AiAnalystChat() {
               {m.grounded_facts && m.grounded_facts.length > 0 && (
                 <div className="grounded-box">
                   <div className="grounded-badge">
-                    <span>🛡️</span> Grounded Facts (Verified Data Truth):
+                    <span>🛡️</span> Grounded Facts (Dữ liệu xác thực):
                   </div>
                   <ul style={{ paddingLeft: '18px', color: 'var(--text-secondary)' }}>
                     {m.grounded_facts.map((fact, fIdx) => (
@@ -157,7 +157,7 @@ export default function AiAnalystChat() {
               {/* Follow-up suggestions */}
               {m.suggested_questions && m.suggested_questions.length > 0 && (
                 <div style={{ marginTop: '14px', borderTop: '1px dashed var(--border-subtle)', paddingTop: '10px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Follow-up questions:</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Gợi ý câu hỏi tiếp theo:</span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                     {m.suggested_questions.map((q, qIdx) => (
                       <button
@@ -185,7 +185,7 @@ export default function AiAnalystChat() {
 
         {loading && (
           <div style={{ color: '#c4b5fd', fontStyle: 'italic', fontSize: '13px' }}>
-            ⚡ Quản lý dữ liệu ClickHouse đang đối chiếu và trích xuất chỉ số phân tích...
+            ⚡ AI đang tổng hợp và phân tích dữ liệu trận đấu...
           </div>
         )}
       </div>

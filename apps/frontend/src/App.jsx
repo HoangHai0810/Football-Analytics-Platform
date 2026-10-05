@@ -1,34 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Header from './components/Header';
 import MatchCenter from './components/MatchCenter';
 import PlayerIntelligence from './components/PlayerIntelligence';
 import PlayerComparison from './components/PlayerComparison';
 import AiAnalystChat from './components/AiAnalystChat';
-import SystemModal from './components/SystemModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('matches');
   const [comparedPlayerId, setComparedPlayerId] = useState(1024);
-  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
-  const [isLiveBackend, setIsLiveBackend] = useState(false);
-
-  useEffect(() => {
-    // Probe Spring Boot backend health
-    async function checkHealth() {
-      const healthUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '') + '/health';
-      try {
-        const res = await fetch(healthUrl);
-        if (res.ok) {
-          setIsLiveBackend(true);
-        }
-      } catch (err) {
-        setIsLiveBackend(false);
-      }
-    }
-    checkHealth();
-    const interval = setInterval(checkHealth, 15000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleComparePlayer = (playerId) => {
     setComparedPlayerId(playerId);
@@ -40,8 +19,6 @@ export default function App() {
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenStatusModal={() => setIsStatusModalOpen(true)}
-        isLiveBackend={isLiveBackend}
       />
 
       <main className="main-content">
@@ -71,26 +48,22 @@ export default function App() {
       <footer
         style={{
           borderTop: '1px solid var(--border-subtle)',
-          padding: '24px 20px',
+          padding: '20px 24px',
           textAlign: 'center',
-          fontSize: '12px',
+          fontSize: '13px',
           color: 'var(--text-muted)',
-          background: 'rgba(10, 14, 23, 0.9)'
+          background: 'rgba(10, 14, 23, 0.95)'
         }}
       >
         <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div>
-            ⚽ <strong>PitchPulse Analytics</strong> — Enterprise Full-Stack Football Intelligence Platform
+            ⚽ <strong>PitchPulse</strong> — Nền Tảng Phân Tích Dữ Liệu Bóng Đá Chuyên Sâu
           </div>
           <div>
-            Backend: Spring Boot 3.3.4 (Java 17) &nbsp;|&nbsp; Frontend: ReactJS (Vite) &nbsp;|&nbsp; OLAP: ClickHouse Star Schema
+            Dữ liệu mở chính thức từ <strong>StatsBomb Open Data (2015 – 2024)</strong>
           </div>
         </div>
       </footer>
-
-      {isStatusModalOpen && (
-        <SystemModal onClose={() => setIsStatusModalOpen(false)} />
-      )}
     </div>
   );
 }
