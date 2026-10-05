@@ -131,23 +131,26 @@ export const api = {
    * GET /players/:id/stats?season_id=
    * Returns stats from mart_player_season_stats or fact_player_match aggregation
    */
-  async getPlayerStats(playerId, seasonId = 2024) {
-    return apiFetch(`/players/${playerId}/stats?season_id=${seasonId}`);
+  async getPlayerStats(playerId, seasonId = null) {
+    const q = seasonId ? `?season_id=${seasonId}` : '';
+    return apiFetch(`/players/${playerId}/stats${q}`);
   },
 
   /**
    * GET /players/:id/shots?season_id=
    * Returns shot events from fact_event
    */
-  async getPlayerShots(playerId, seasonId = 2024) {
-    return apiFetch(`/players/${playerId}/shots?season_id=${seasonId}`);
+  async getPlayerShots(playerId, seasonId = null) {
+    const q = seasonId ? `?season_id=${seasonId}` : '';
+    return apiFetch(`/players/${playerId}/shots${q}`);
   },
 
   /**
    * GET /players/compare?ids=p1,p2&season_id=
    */
-  async comparePlayers(player1Id, player2Id, seasonId = 2024) {
-    return apiFetch(`/players/compare?ids=${player1Id},${player2Id}&season_id=${seasonId}`);
+  async comparePlayers(player1Id, player2Id, seasonId = null) {
+    const q = seasonId ? `&season_id=${seasonId}` : '';
+    return apiFetch(`/players/compare?ids=${player1Id},${player2Id}${q}`);
   },
 
   /**

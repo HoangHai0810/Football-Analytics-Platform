@@ -174,15 +174,16 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
         match_id = int(m["match_id"])
 
         # Teams
+        import urllib.parse
         for team_col, name_col in [("home_team_id", "home_team"), ("away_team_id", "away_team")]:
             t_id = int(m[team_col])
             t_name = str(m[name_col])
-            logo = TEAM_LOGOS.get(t_id, "https://crests.football-data.org/81.png")
+            logo = TEAM_LOGOS.get(t_id, f"https://ui-avatars.com/api/?name={urllib.parse.quote(t_name)}&background=0f172a&color=38bdf8&bold=true")
             cur.execute("""
                 INSERT INTO dim_team (team_id, name, country, stadium, logo_url)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (team_id) DO UPDATE
-                  SET name=EXCLUDED.name, updated_at=NOW()
+                  SET name=EXCLUDED.name, logo_url=EXCLUDED.logo_url, updated_at=NOW()
             """, (t_id, t_name, comp_name, "Stadium of " + t_name, logo))
 
         # dim_match
@@ -268,12 +269,31 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
                     pos_short = ("FW" if any(k in pos_name for k in ["Forward", "Striker", "Wing"])
                                  else ("MF" if "Midfield" in pos_name
                                        else ("DF" if "Back" in pos_name else "GK")))
+                    player_nat = "International"
+                    if comp_type == "INTERNATIONAL":
+                        t_name = str(m.get("home_team" if tid == int(m.get("home_team_id", 0)) else "away_team", "")).replace(" Women's", "").strip()
+                        player_nat = t_name if t_name else "International"
+                    else:
+                        c_lower = comp_name.lower()
+                        if "spain" in c_lower or "la liga" in c_lower:
+                            player_nat = "Spain"
+                        elif "france" in c_lower or "ligue" in c_lower:
+                            player_nat = "France"
+                        elif "england" in c_lower or "premier" in c_lower:
+                            player_nat = "England"
+                        elif "germany" in c_lower or "bundesliga" in c_lower:
+                            player_nat = "Germany"
+                        elif "italy" in c_lower or "serie" in c_lower:
+                            player_nat = "Italy"
+                        else:
+                            player_nat = str(m.get("country_name") or "International")
+
                     cur.execute("""
                         INSERT INTO dim_player (player_id, name, date_of_birth, nationality, position, preferred_foot)
                         VALUES (%s, %s, %s, %s, %s, %s)
                         ON CONFLICT (player_id) DO UPDATE
-                          SET name=EXCLUDED.name, position=EXCLUDED.position, updated_at=NOW()
-                    """, (pid, pname, None, comp_name, pos_short, "RIGHT"))
+                          SET name=EXCLUDED.name, nationality=EXCLUDED.nationality, position=EXCLUDED.position, updated_at=NOW()
+                    """, (pid, pname, None, player_nat, pos_short, "RIGHT"))
 
                 pm_key = (match_id, pid)
                 if pm_key not in all_player_matches:

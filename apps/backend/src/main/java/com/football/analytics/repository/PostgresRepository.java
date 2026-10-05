@@ -189,7 +189,8 @@ public class PostgresRepository {
         List<Player> list = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, ")
-           .append("coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, coalesce(t.logo_url, '') as avatar_url ")
+           .append("coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, ")
+           .append("'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true' as avatar_url ")
            .append("FROM dim_player p ")
            .append("LEFT JOIN (SELECT player_id, max(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id ")
            .append("LEFT JOIN dim_team t ON fpm.team_id = t.team_id WHERE 1=1 ");
@@ -231,7 +232,8 @@ public class PostgresRepository {
 
     public Optional<Player> getPlayer(Long id) {
         String sql = "SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, " +
-                     "coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, coalesce(t.logo_url, '') as avatar_url " +
+                     "coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, " +
+                     "'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true' as avatar_url " +
                      "FROM dim_player p " +
                      "LEFT JOIN (SELECT player_id, max(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id " +
                      "LEFT JOIN dim_team t ON fpm.team_id = t.team_id " +
@@ -266,7 +268,7 @@ public class PostgresRepository {
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT m.match_id AS match_id, m.competition_id AS competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id AS season_id, ")
            .append("m.home_team_id AS home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, ")
-           .append("m.away_team_id AS away_team_id, coalesce(at.name, 'Away Team') as away_team_name, coalesce(at.logo_url, '') as away_team_logo, ")
+           .append("m.away_team_id AS away_team_id, coalesce(awt.name, 'Away Team') as away_team_name, coalesce(awt.logo_url, '') as away_team_logo, ")
            .append("coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, ")
            .append("coalesce(fm.home_xg, 0.0) as home_xg, coalesce(fm.away_xg, 0.0) as away_xg, ")
            .append("m.match_date AS match_date, m.status AS status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance ")
@@ -274,7 +276,7 @@ public class PostgresRepository {
            .append("LEFT JOIN fact_match fm ON m.match_id = fm.match_id ")
            .append("LEFT JOIN dim_competition c ON m.competition_id = c.competition_id ")
            .append("LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id ")
-           .append("LEFT JOIN dim_team at2 ON m.away_team_id = at2.team_id WHERE 1=1 ");
+           .append("LEFT JOIN dim_team awt ON m.away_team_id = awt.team_id WHERE 1=1 ");
 
         if (competitionId != null) {
             sql.append(" AND m.competition_id = ").append(competitionId);
@@ -323,7 +325,7 @@ public class PostgresRepository {
     public Optional<Match> getMatch(Long id) {
         String sql = "SELECT m.match_id AS match_id, m.competition_id AS competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id AS season_id, " +
                      "m.home_team_id AS home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, " +
-                     "m.away_team_id AS away_team_id, coalesce(at.name, 'Away Team') as away_team_name, coalesce(at.logo_url, '') as away_team_logo, " +
+                     "m.away_team_id AS away_team_id, coalesce(awt.name, 'Away Team') as away_team_name, coalesce(awt.logo_url, '') as away_team_logo, " +
                      "coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, " +
                      "coalesce(fm.home_xg, 0.0) as home_xg, coalesce(fm.away_xg, 0.0) as away_xg, " +
                      "m.match_date AS match_date, m.status AS status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance " +
@@ -331,7 +333,7 @@ public class PostgresRepository {
                      "LEFT JOIN fact_match fm ON m.match_id = fm.match_id " +
                      "LEFT JOIN dim_competition c ON m.competition_id = c.competition_id " +
                      "LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id " +
-                     "LEFT JOIN dim_team at2 ON m.away_team_id = at2.team_id " +
+                     "LEFT JOIN dim_team awt ON m.away_team_id = awt.team_id " +
                      "WHERE m.match_id = " + id;
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
@@ -368,50 +370,25 @@ public class PostgresRepository {
 
     public Optional<PlayerSeasonStats> getPlayerStats(Long playerId, Long seasonId) {
         // Try dbt mart first: mart_player_season_stats
-        String martSql = "SELECT * FROM mart_player_season_stats WHERE player_id = " + playerId +
-                         (seasonId != null ? " AND season_id = " + seasonId : "") + " LIMIT 1";
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(martSql)) {
-            if (rs.next()) {
-                PlayerSeasonStats stats = new PlayerSeasonStats();
-                stats.setPlayerId(rs.getLong("player_id"));
-                stats.setSeasonId(rs.getLong("season_id"));
-                stats.setSeasonName("2024/2025");
-                stats.setMatchesPlayed(rs.getInt("total_matches"));
-                stats.setMinutes(rs.getInt("total_minutes"));
-                stats.setGoals(rs.getInt("total_goals"));
-                stats.setAssists(rs.getInt("total_assists"));
-                stats.setShots(rs.getInt("total_shots"));
-                stats.setShotsOnTarget(rs.getInt("total_shots_on_target"));
-                stats.setPasses(rs.getInt("total_passes"));
-                stats.setKeyPasses(rs.getInt("total_key_passes"));
-                stats.setXg(rs.getDouble("total_xg"));
-                stats.setXa(rs.getDouble("total_xa"));
-                stats.setTackles(rs.getInt("total_tackles"));
-                stats.setInterceptions(rs.getInt("total_interceptions"));
-                stats.setDuels(rs.getInt("total_duels"));
-                stats.setPressures(rs.getInt("total_pressures"));
-                stats.setGoalsPer90(rs.getDouble("goals_per_90"));
-                stats.setAssistsPer90(rs.getDouble("assists_per_90"));
-                stats.setXgPer90(rs.getDouble("xg_per_90"));
-                stats.setXaPer90(rs.getDouble("xa_per_90"));
-                stats.setShotsPer90(rs.getDouble("shots_per_90"));
-                stats.setPassCompletionRate(82.5);
-                stats.setDuelWinRate(54.0);
-
-                calculateRadarRatings(stats);
-                return Optional.of(stats);
-            }
-        } catch (Exception e) {
-            log.debug("mart_player_season_stats not queried, trying fact_player_match aggregation: {}", e.getMessage());
+        // 1. If seasonId provided, try that specific season
+        if (seasonId != null) {
+            String martSql = "SELECT * FROM mart_player_season_stats WHERE player_id = " + playerId +
+                             " AND season_id = " + seasonId + " LIMIT 1";
+            Optional<PlayerSeasonStats> res = extractMartStats(martSql);
+            if (res.isPresent()) return res;
         }
 
-        // Direct aggregation from fact_player_match
+        // 2. If not found or seasonId omitted, take the player's most active season
+        String bestSeasonSql = "SELECT * FROM mart_player_season_stats WHERE player_id = " + playerId +
+                               " ORDER BY total_minutes DESC LIMIT 1";
+        Optional<PlayerSeasonStats> bestRes = extractMartStats(bestSeasonSql);
+        if (bestRes.isPresent()) return bestRes;
+
+        // 3. Fallback: direct aggregation from fact_player_match
         String aggSql = "SELECT player_id, count(DISTINCT match_id) as total_matches, sum(minutes) as total_minutes, " +
                         "sum(goals) as total_goals, sum(assists) as total_assists, sum(shots) as total_shots, " +
                         "sum(shots_on_target) as total_shots_on_target, sum(passes) as total_passes, " +
-                        "sum(key_passes) as total_key_passes, round(sum(xg), 2) as total_xg, round(sum(xa), 2) as total_xa, " +
+                        "sum(key_passes) as total_key_passes, round(cast(sum(xg) as numeric), 2) as total_xg, round(cast(sum(xa) as numeric), 2) as total_xa, " +
                         "sum(tackles) as total_tackles, sum(interceptions) as total_interceptions, " +
                         "sum(duels) as total_duels, sum(pressures) as total_pressures " +
                         "FROM fact_player_match WHERE player_id = " + playerId + " GROUP BY player_id";
@@ -472,27 +449,50 @@ public class PostgresRepository {
         return Optional.empty();
     }
 
-    private void calculateRadarRatings(PlayerSeasonStats stats) {
-        double g90 = stats.getGoalsPer90() != null ? stats.getGoalsPer90() : 0.0;
-        double a90 = stats.getAssistsPer90() != null ? stats.getAssistsPer90() : 0.0;
-        double xg90 = stats.getXgPer90() != null ? stats.getXgPer90() : 0.0;
-        int kp = stats.getKeyPasses() != null ? stats.getKeyPasses() : 0;
-        int tkl = stats.getTackles() != null ? stats.getTackles() : 0;
-        int p = stats.getPressures() != null ? stats.getPressures() : 0;
-        int passes = stats.getPasses() != null ? stats.getPasses() : 0;
-        int duels = stats.getDuels() != null ? stats.getDuels() : 0;
+    private Optional<PlayerSeasonStats> extractMartStats(String sql) {
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                PlayerSeasonStats stats = new PlayerSeasonStats();
+                stats.setPlayerId(rs.getLong("player_id"));
+                long sId = rs.getLong("season_id");
+                stats.setSeasonId(sId);
+                stats.setSeasonName("Season " + sId);
+                stats.setMatchesPlayed(rs.getInt("total_matches"));
+                stats.setMinutes(rs.getInt("total_minutes"));
+                stats.setGoals(rs.getInt("total_goals"));
+                stats.setAssists(rs.getInt("total_assists"));
+                stats.setShots(rs.getInt("total_shots"));
+                stats.setShotsOnTarget(rs.getInt("total_shots_on_target"));
+                stats.setPasses(rs.getInt("total_passes"));
+                stats.setKeyPasses(rs.getInt("total_key_passes"));
+                stats.setXg(rs.getDouble("total_xg"));
+                stats.setXa(rs.getDouble("total_xa"));
+                stats.setTackles(rs.getInt("total_tackles"));
+                stats.setInterceptions(rs.getInt("total_interceptions"));
+                stats.setDuels(rs.getInt("total_duels"));
+                stats.setPressures(rs.getInt("total_pressures"));
+                stats.setGoalsPer90(rs.getDouble("goals_per_90"));
+                stats.setAssistsPer90(rs.getDouble("assists_per_90"));
+                stats.setXgPer90(rs.getDouble("xg_per_90"));
+                stats.setXaPer90(rs.getDouble("xa_per_90"));
+                stats.setShotsPer90(rs.getDouble("shots_per_90"));
+                stats.setPassCompletionRate(82.5);
+                stats.setDuelWinRate(54.0);
 
-        stats.setFinishingRating(Math.min(99, Math.max(50, (int) (g90 * 65.0 + xg90 * 30.0 + 40))));
-        stats.setCreationRating(Math.min(99, Math.max(50, (int) (a90 * 60.0 + kp * 0.8 + 45))));
-        stats.setProgressionRating(Math.min(99, Math.max(50, (int) (passes * 0.04 + 50))));
-        stats.setPressingRating(Math.min(99, Math.max(50, (int) (p * 0.25 + 45))));
-        stats.setDefendingRating(Math.min(99, Math.max(40, (int) (tkl * 1.5 + 40))));
-        stats.setAerialRating(Math.min(99, Math.max(45, (int) (duels * 0.2 + 50))));
+                calculateRadarRatings(stats);
+                return Optional.of(stats);
+            }
+        } catch (Exception e) {
+            log.debug("mart extraction failed: {}", e.getMessage());
+        }
+        return Optional.empty();
     }
 
     public List<ShotEvent> getPlayerShots(Long playerId, Long seasonId) {
         List<ShotEvent> list = new ArrayList<>();
-        String sql = "SELECT toString(fe.event_id) as event_id, fe.match_id, fe.player_id, coalesce(dp.name, 'Player') as player_name, " +
+        String sql = "SELECT cast(fe.event_id as text) as event_id, fe.match_id, fe.player_id, coalesce(dp.name, 'Player') as player_name, " +
                      "fe.team_id, fe.minute, fe.second, fe.x, fe.y, fe.outcome " +
                      "FROM fact_event fe " +
                      "LEFT JOIN dim_player dp ON fe.player_id = dp.player_id " +

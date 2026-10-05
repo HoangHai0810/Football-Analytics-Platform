@@ -33,7 +33,7 @@ public class PlayerController {
     @GetMapping("/compare")
     public ApiResponse<ComparisonDto> comparePlayers(
             @RequestParam("ids") String idsParam,
-            @RequestParam(value = "season_id", defaultValue = "2024") Long seasonId) {
+            @RequestParam(value = "season_id", required = false) Long seasonId) {
         long start = System.currentTimeMillis();
         List<Long> ids = Arrays.stream(idsParam.split(","))
                 .map(String::trim)
@@ -53,7 +53,7 @@ public class PlayerController {
     @GetMapping("/{id}/stats")
     public ApiResponse<PlayerSeasonStats> getPlayerStats(
             @PathVariable Long id,
-            @RequestParam(value = "season_id", defaultValue = "2024") Long seasonId) {
+            @RequestParam(value = "season_id", required = false) Long seasonId) {
         long start = System.currentTimeMillis();
         PlayerSeasonStats data = playerService.getPlayerStats(id, seasonId);
         return ApiResponse.success(data, start, false);
@@ -62,7 +62,7 @@ public class PlayerController {
     @GetMapping("/{id}/shots")
     public ApiResponse<List<ShotEvent>> getPlayerShots(
             @PathVariable Long id,
-            @RequestParam(value = "season_id", defaultValue = "2024") Long seasonId) {
+            @RequestParam(value = "season_id", required = false) Long seasonId) {
         long start = System.currentTimeMillis();
         List<ShotEvent> data = playerService.getPlayerShots(id, seasonId);
         return ApiResponse.success(data, start, false);
