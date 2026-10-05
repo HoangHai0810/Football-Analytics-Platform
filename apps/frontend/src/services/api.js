@@ -4,12 +4,12 @@
  * STRICT MODE: No mock data. All data comes from the real backend API.
  * If the API is unreachable, an error is thrown and the UI must handle it.
  *
- * Backend: https://football-analytics-platform.onrender.com
- * Data Source: Spring Boot → ClickHouse OLAP (real DE pipeline data)
+ * Backend: https://football-analytics-backend-4emn.onrender.com
+ * Data Source: Spring Boot → PostgreSQL (seeded via GitHub Actions cron pipeline)
  */
 
 // Production backend — always absolute, always includes /api/v1
-const PRODUCTION_BACKEND = 'https://football-analytics-platform.onrender.com/api/v1';
+const PRODUCTION_BACKEND = 'https://football-analytics-backend-4emn.onrender.com/api/v1';
 
 function resolveApiBase() {
   const raw = import.meta.env.VITE_API_BASE_URL;

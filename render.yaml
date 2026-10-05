@@ -14,7 +14,9 @@ databases:
     databaseName: football_analytics
     plan: free
     region: singapore
-    ipAllowList: [] # Allow external connections (e.g. GitHub Actions cron data pipeline)
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: Allow GitHub Actions and external tools
 
 services:
   # ----------------------------------------------------------------------------
@@ -73,7 +75,6 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        fromService:
-          type: web
-          name: football-analytics-backend
-          property: host
+        # Use the full public URL — Render's 'host' property returns only a bare
+        # internal hostname without protocol or .onrender.com suffix.
+        value: https://football-analytics-backend-4emn.onrender.com/api/v1
