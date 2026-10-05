@@ -118,3 +118,15 @@ Sau khi khởi động:
 - **Giao diện Phân tích:** [http://localhost:3000](http://localhost:3000)
 - **Backend API & Swagger/Health:** [http://localhost:8000/health](http://localhost:8000/health)
 - **PostgreSQL Database:** `localhost:5432` (`football_analytics`)
+
+---
+
+## 5. ☁️ Triển Khai Lên Render.com (100% Free Tier với `render.yaml`)
+
+Dự án cung cấp sẵn file Blueprint [`render.yaml`](../render.yaml) ở thư mục gốc. Khi kết nối repository với Render:
+1. Vào **Render Dashboard** ➔ Chọn **New** ➔ **Blueprint**.
+2. Chọn repository này. Render sẽ tự động nhận diện `render.yaml` và khởi tạo:
+   - 🗄️ **PostgreSQL Database:** Free Tier `football-postgres` (database `football_analytics`).
+   - ☕ **Backend REST API:** Web Service `football-analytics-backend` (Spring Boot Java 17 Docker).
+   - 🌐 **Frontend SPA:** Static Site `football-analytics-frontend` (React 18 + Vite).
+3. Lấy **External Database URL** của PostgreSQL từ Render và thêm vào **GitHub Repository Secrets** (`DATABASE_URL` hoặc `PG_HOST`, `PG_PASSWORD`) để GitHub Actions tự động nạp dữ liệu hàng ngày.

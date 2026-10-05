@@ -1,0 +1,83 @@
+# ==============================================================================
+# Render.com Blueprint (Infrastructure as Code)
+# Docs: https://render.com/docs/blueprint-spec
+#
+# When you connect this Git repository to Render.com via "New -> Blueprint",
+# Render will automatically detect this file and provision:
+# 1. PostgreSQL Database (Free Tier) - Contains analytics schema & marts
+# 2. Backend REST API (Free Docker Service) - Spring Boot 3.3 (Java 17)
+# 3. Frontend Web App (Free Static Site) - React 18 + Vite + Tailwind CSS
+# ==============================================================================
+
+databases:
+  - name: football-postgres
+    databaseName: football_analytics
+    user: postgres
+    plan: free
+    region: singapore
+    ipAllowList: [] # Allow external connections (e.g. GitHub Actions cron data pipeline)
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Backend REST API (Spring Boot 3 + Java 17 Docker)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: football-analytics-backend
+    runtime: docker
+    dockerfilePath: ./apps/backend/Dockerfile
+    dockerContext: ./apps/backend
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: SPRING_PROFILES_ACTIVE
+        value: production
+      - key: PG_HOST
+        fromDatabase:
+          name: football-postgres
+          property: host
+      - key: PG_PORT
+        fromDatabase:
+          name: football-postgres
+          property: port
+      - key: PG_DB
+        fromDatabase:
+          name: football-postgres
+          property: database
+      - key: PG_USER
+        fromDatabase:
+          name: football-postgres
+          property: user
+      - key: PG_PASSWORD
+        fromDatabase:
+          name: football-postgres
+          property: password
+      - key: PG_SSL
+        value: "true"
+      - key: FRONTEND_URL
+        fromService:
+          type: web
+          name: football-analytics-frontend
+          property: url
+
+  # ----------------------------------------------------------------------------
+  # 2. Frontend Web App (React 18 + Vite SPA - Static Site CDN)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: football-analytics-frontend
+    env: static
+    rootDir: apps/frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: football-analytics-backend
+          property: url

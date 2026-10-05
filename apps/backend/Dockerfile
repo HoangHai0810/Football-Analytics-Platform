@@ -35,5 +35,4 @@ EXPOSE 8000
 
 ENTRYPOINT ["java", "-jar", \
   "-Djava.security.egd=file:/dev/./urandom", \
-  "-Dserver.port=8000", \
   "app.jar"]

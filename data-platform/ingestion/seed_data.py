@@ -29,11 +29,13 @@ try:
 except ModuleNotFoundError:
     from transformers.event_normalizer import normalize_event
 
-PG_HOST     = os.getenv("PG_HOST", "localhost").strip()
-PG_PORT     = int(os.getenv("PG_PORT", "5432"))
-PG_DB       = os.getenv("PG_DB", "football_analytics").strip()
-PG_USER     = os.getenv("PG_USER", "postgres").strip()
-PG_PASSWORD = os.getenv("PG_PASSWORD", "").strip()
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or ""
+PG_HOST      = os.getenv("PG_HOST", "").strip()
+PG_PORT      = int(os.getenv("PG_PORT", "5432"))
+PG_DB        = os.getenv("PG_DB", "football_analytics").strip()
+PG_USER      = os.getenv("PG_USER", "postgres").strip()
+PG_PASSWORD  = os.getenv("PG_PASSWORD", "").strip()
+PG_SSL       = os.getenv("PG_SSL", "").strip().lower()
 
 COMPETITION_ID = 11   # La Liga
 SEASON_ID = 27        # 2015/2016
@@ -49,13 +51,22 @@ TEAM_LOGOS = {
 
 
 def get_conn():
+    if DATABASE_URL:
+        return psycopg2.connect(DATABASE_URL, connect_timeout=15)
+
+    # Determine SSL mode:
+    # If host is remote (e.g. Render, Neon, Supabase) or PG_SSL explicitly requested, require SSL
+    is_local = PG_HOST in ("localhost", "127.0.0.1", "postgres")
+    sslmode = "require" if (PG_SSL in ("true", "1", "yes", "require") or not is_local) else "prefer"
+
     return psycopg2.connect(
         host=PG_HOST,
         port=PG_PORT,
         dbname=PG_DB,
         user=PG_USER,
         password=PG_PASSWORD,
-        connect_timeout=10,
+        sslmode=sslmode,
+        connect_timeout=15,
     )
 
 
@@ -71,14 +82,26 @@ def init_schema(cur):
 
 
 def seed():
-    if not PG_HOST:
+    if not DATABASE_URL and not PG_HOST:
         print("=" * 60)
-        print("❌ LỖI: Chưa cấu hình PG_HOST!")
-        print("   Settings -> Secrets -> New repository secret")
+        print("❌ LỖI: Chưa cấu hình kết nối PostgreSQL!")
+        print("   Vui lòng vào GitHub: Settings -> Secrets and variables -> Actions")
+        print("   Thêm một trong 2 cách sau vào 'Repository secrets':")
+        print("   👉 Cách 1 (Khuyên dùng Render/Neon/Supabase):")
+        print("      - DATABASE_URL: postgresql://user:pass@host:5432/dbname")
+        print("   👉 Cách 2 (Từng trường riêng lẻ):")
+        print("      - PG_HOST: (vd: dpg-xxxx.singapore-postgres.render.com)")
+        print("      - PG_PASSWORD: ...")
+        print("      - PG_USER: postgres")
+        print("      - PG_DB: football_analytics")
         print("=" * 60)
         sys.exit(1)
 
-    print(f"📡 Connecting to PostgreSQL at {PG_HOST}:{PG_PORT} db={PG_DB}...")
+    if DATABASE_URL:
+        print(f"📡 Connecting to PostgreSQL via DATABASE_URL...")
+    else:
+        print(f"📡 Connecting to PostgreSQL at {PG_HOST}:{PG_PORT} db={PG_DB}...")
+
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor()

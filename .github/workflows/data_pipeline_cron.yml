@@ -26,11 +26,13 @@ jobs:
 
       - name: Run Data Ingestion & PostgreSQL Population
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PG_HOST: ${{ secrets.PG_HOST }}
           PG_PORT: ${{ secrets.PG_PORT || '5432' }}
           PG_DB: ${{ secrets.PG_DB || 'football_analytics' }}
           PG_USER: ${{ secrets.PG_USER || 'postgres' }}
           PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
+          PG_SSL: ${{ secrets.PG_SSL || 'true' }}
           FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }}
         run: |
           echo "🚀 Starting automated ingestion pipeline..."
