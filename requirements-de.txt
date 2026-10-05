@@ -8,7 +8,8 @@ statsbombpy>=1.1
 # football-data.org API
 httpx>=0.27
 
-# ClickHouse
+# PostgreSQL & ClickHouse
+psycopg2-binary>=2.9.9
 clickhouse-connect>=0.7
 
 # Kafka / Redpanda
@@ -19,6 +20,7 @@ boto3>=1.34
 
 # dbt
 dbt-core>=1.7
+dbt-postgres>=1.7
 dbt-clickhouse>=1.7
 
 # Orchestration client (for triggering Kestra APIs)

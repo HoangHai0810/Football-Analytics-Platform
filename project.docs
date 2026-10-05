@@ -1,7 +1,7 @@
 # ⚽ Football Analytics Platform — System Architecture & Engineering Blueprint
 
 > **Version:** 1.0.0 &nbsp;|&nbsp; **Status:** Ready for Development &nbsp;|&nbsp; **Project Type:** Full-Stack Web + Data Engineering + AI Analytics  
-> **Core Mission:** Ingest, stream, and transform event-level football data into ClickHouse, expose high-performance analytical APIs via FastAPI, and deliver an AI-powered conversational analyst with zero hallucination.  
+> **Core Mission:** Ingest, stream, and transform event-level football data into PostgreSQL (Primary Analytics & Transactional Store, supporting 100% Free Cloud Tier deployment on Neon/Supabase/Render) with ClickHouse OLAP scale, expose high-performance analytical APIs via Spring Boot (Java 17), and deliver an interactive ReactJS frontend with AI-powered conversational insights with zero hallucination.  
 > ⚠️ **MANDATORY RULES FOR AI AGENTS:** All agents must read and strictly obey [AGENTS.md](./AGENTS.md) before performing any changes.
 
 ---
@@ -247,18 +247,16 @@ To prevent timeout failures, memory limits, and socket leakage, workloads are st
 
 | Tier | Primary Technology | Justification & Purpose |
 | :--- | :--- | :--- |
-| **Web Frontend** | Next.js 15, TypeScript, React 19 | SSR/SSG flexibility, modern React Server Components, developer velocity. |
-| **UI Design System** | Tailwind CSS + shadcn/ui | Modern, responsive dark-mode aesthetics with accessible headless primitives. |
-| **Visualizations** | Recharts + SVG / D3.js | Interactive trend charts, pitch radar diagrams, and coordinate-precise shot maps. |
-| **Backend Framework** | FastAPI (Python 3.11+) | Asynchronous execution, native Pydantic OpenAPI docs, rich data ecosystem. |
-| **Transactional DB** | PostgreSQL 16 | Relational consistency for users, permissions, saved searches, and metadata. |
-| **Analytical DB** | ClickHouse | Columnar OLAP engine capable of querying millions of events with sub-second latency. |
+| **Web Frontend** | React 18, Vite 6, Tailwind CSS | Fast SPA execution, responsive dark-mode aesthetics, custom SVG visualizations. |
+| **Backend Framework** | Spring Boot 3.3.4 (Java 17 LTS) | Robust typed MVC architecture, connection pooling, high-throughput REST APIs. |
+| **Primary Database (Analytics + App)**| PostgreSQL 16 | Relational consistency, Star Schema, JSONB, native indexes; enables 100% Free Cloud Tier deployment (Neon, Supabase, Render). |
+| **Analytical OLAP Engine (Scale)**| ClickHouse | Optional high-volume columnar OLAP engine for querying tens of millions of raw events. |
 | **In-Memory Cache** | Redis 7 | API response caching, rate limiting tokens, and temporary AI conversation states. |
 | **Event Streaming** | Apache Kafka / Redpanda | Decoupled streaming pipelines, durable message logs, and replay capabilities. |
 | **Raw Storage** | MinIO (local) / S3 (cloud) | Immutable bronze data lake preserving original JSON payloads. |
 | **Transformations** | Python + dbt | Python for data normalization; dbt for modeling, SQL DAGs, and data tests. |
-| **Orchestration** | Kestra | Declarative workflow runner for batch ingestion, daily syncs, and aggregate refreshes. |
-| **AI Orchestration** | LangGraph + OpenAI / Claude | Deterministic state graph, tool call loops, and conversational memory. |
+| **Orchestration** | Kestra / GitHub Actions Cron | Scheduled workflow runner for batch ingestion, daily syncs, and aggregate refreshes. |
+| **AI Orchestration** | LangGraph / LLM Service | Deterministic state graph, tool call loops, and conversational memory. |
 
 ---
 
@@ -533,16 +531,16 @@ Daily pipelines run on automated schedules via declarative YAML flows in Kestra:
 
 # 4. Data Warehousing & Analytical Modeling
 
-## 4.1. Analytical Engine: ClickHouse vs PostgreSQL
+## 4.1. Analytical Engine: PostgreSQL & ClickHouse Coexistence
 
 ```
 ┌──────────────────────────────────────────────┐    ┌──────────────────────────────────────────────┐
-│           CLICKHOUSE (OLAP ENGINE)           │    │          POSTGRESQL (OLTP ENGINE)            │
+│          POSTGRESQL (PRIMARY STORE)          │    │          CLICKHOUSE (OPTIONAL OLAP)          │
 ├──────────────────────────────────────────────┤    ├──────────────────────────────────────────────┤
-│ • Event tables (millions of rows)            │    │ • User authentication & profile records      │
-│ • Aggregations over seasons and match sets   │    │ • Bookmarked comparisons & alerts            │
-│ • Sub-second analytical radar & trend stats  │    │ • Application feature flags & UI settings    │
-│ • Columnar compression & vectorized execution│    │ • ACID transaction state management          │
+│ • Star Schema & Pre-aggregated Marts         │    │ • Event tables (millions of rows)            │
+│ • Sub-50ms query response with B-Tree indexes│    │ • Vectorized execution on large clusters     │
+│ • Free Cloud Tier friendly (Neon/Supabase)   │    │ • Columnar compression for massive sets      │
+│ • Transactional metadata + Analytical facts  │    │ • Scalable alternative for enterprise volume │
 └──────────────────────────────────────────────┘    └────────────────────────────────────────────┘
 ```
 

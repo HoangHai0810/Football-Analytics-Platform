@@ -1,8 +1,8 @@
-package com.football.analytics.service;
+﻿package com.football.analytics.service;
 
 import com.football.analytics.exception.ResourceNotFoundException;
 import com.football.analytics.model.Team;
-import com.football.analytics.repository.ClickHouseRepository;
+import com.football.analytics.repository.PostgresRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,15 +14,15 @@ import java.util.List;
 public class TeamService {
     private static final Logger log = LoggerFactory.getLogger(TeamService.class);
 
-    private final ClickHouseRepository clickHouseRepository;
+    private final PostgresRepository PostgresRepository;
 
-    public TeamService(ClickHouseRepository clickHouseRepository) {
-        this.clickHouseRepository = clickHouseRepository;
+    public TeamService(PostgresRepository PostgresRepository) {
+        this.PostgresRepository = PostgresRepository;
     }
 
     public List<Team> getAllTeams() {
         try {
-            List<Team> teams = clickHouseRepository.getAllTeams();
+            List<Team> teams = PostgresRepository.getAllTeams();
             return teams != null ? teams : Collections.emptyList();
         } catch (Exception e) {
             log.error("ClickHouse team query failed: {}", e.getMessage());
@@ -32,7 +32,7 @@ public class TeamService {
 
     public Team getTeamById(Long id) {
         try {
-            return clickHouseRepository.getTeam(id)
+            return PostgresRepository.getTeam(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                     "TEAM_NOT_FOUND", "Team with id " + id + " not found."));
         } catch (ResourceNotFoundException e) {

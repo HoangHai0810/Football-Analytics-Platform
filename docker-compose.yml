@@ -93,13 +93,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: football_app
+      POSTGRES_DB: football_analytics
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres_dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init_analytics.sql:/docker-entrypoint-initdb.d/init_analytics.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d football_app"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d football_analytics"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -135,7 +136,7 @@ services:
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:
-            url: jdbc:postgresql://postgres:5432/football_app
+            url: jdbc:postgresql://postgres:5432/football_analytics
             username: postgres
             password: postgres_dev
     depends_on:
@@ -158,17 +159,17 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # ClickHouse Connection (read-only OLAP queries)
-      CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: 8123
-      CLICKHOUSE_DB: football_analytics
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: clickhouse_dev
+      # PostgreSQL Connection (analytics + transactional)
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DB: football_analytics
+      PG_USER: postgres
+      PG_PASSWORD: postgres_dev
       # Spring profile
       SPRING_PROFILES_ACTIVE: docker
-    # clickhouse is linked if present; backend has resilient in-memory fallback
     depends_on:
-      - clickhouse
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
       interval: 15s

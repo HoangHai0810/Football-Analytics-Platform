@@ -1,8 +1,8 @@
-package com.football.analytics.service;
+﻿package com.football.analytics.service;
 
 import com.football.analytics.exception.ResourceNotFoundException;
 import com.football.analytics.model.Match;
-import com.football.analytics.repository.ClickHouseRepository;
+import com.football.analytics.repository.PostgresRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,15 +14,15 @@ import java.util.List;
 public class MatchService {
     private static final Logger log = LoggerFactory.getLogger(MatchService.class);
 
-    private final ClickHouseRepository clickHouseRepository;
+    private final PostgresRepository PostgresRepository;
 
-    public MatchService(ClickHouseRepository clickHouseRepository) {
-        this.clickHouseRepository = clickHouseRepository;
+    public MatchService(PostgresRepository PostgresRepository) {
+        this.PostgresRepository = PostgresRepository;
     }
 
     public List<Match> getMatches(Long competitionId, Long seasonId, String status) {
         try {
-            List<Match> matches = clickHouseRepository.getAllMatches(competitionId, seasonId, status);
+            List<Match> matches = PostgresRepository.getAllMatches(competitionId, seasonId, status);
             return matches != null ? matches : Collections.emptyList();
         } catch (Exception e) {
             log.error("ClickHouse matches query failed: {}", e.getMessage());
@@ -32,7 +32,7 @@ public class MatchService {
 
     public Match getMatchById(Long id) {
         try {
-            return clickHouseRepository.getMatch(id)
+            return PostgresRepository.getMatch(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                     "MATCH_NOT_FOUND", "Match with id " + id + " not found."));
         } catch (ResourceNotFoundException e) {

@@ -11,14 +11,15 @@
 
 Theo chỉ đạo của người dùng:
 1. **Chuẩn hóa Techstack:**
-   - **Backend (BE):** Spring Boot 3.3.4 (Java 17 LTS), ClickHouse JDBC Driver 0.6.3, Spring Web, Actuator, Jackson JSR310.
+   - **Backend (BE):** Spring Boot 3.3.4 (Java 17 LTS), PostgreSQL JDBC Driver, Spring Web, Actuator, Jackson JSR310.
    - **Frontend (FE):** React 18, Vite 6, Tailwind CSS, Lucide Icons, Custom SVG Radar Chart.
+   - **Primary Database:** PostgreSQL 16 (chứa analytics schema & facts/marts, hỗ trợ 100% Free Cloud Tier trên Neon/Supabase/Render).
 2. **Containerization (Docker hóa):**
    - Đóng gói Backend thành Docker image nhiều giai đoạn (`apps/backend/Dockerfile`).
    - Đóng gói Frontend thành Docker image kết hợp Nginx phục vụ SPA và reverse-proxy (`apps/frontend/Dockerfile`, `apps/frontend/nginx.conf`).
-   - Cập nhật `docker-compose.yml` để tích hợp 2 dịch vụ `backend` và `frontend` đồng thời giữ nguyên toàn bộ dịch vụ của DE (`clickhouse`, `redpanda`, `minio`, `kestra`,...).
+   - Cập nhật `docker-compose.yml` để tích hợp 2 dịch vụ `backend` và `frontend` liên kết trực tiếp với `postgres` container và giữ nguyên các dịch vụ bổ trợ.
 3. **Cập nhật & Điều chỉnh Tài liệu (`docs/`):**
-   - Cập nhật [docs/BE_GUIDE.md](./BE_GUIDE.md) chuyển đổi từ các tham chiếu cũ sang Spring Boot & ClickHouse JDBC.
+   - Cập nhật [docs/BE_GUIDE.md](./BE_GUIDE.md) chuyển sang Spring Boot & PostgreSQL JDBC.
    - Bổ sung [docs/FE_GUIDE.md](./FE_GUIDE.md) hướng dẫn toàn diện cho Frontend React & Nginx.
    - Bổ sung tài liệu tiến độ chi tiết này.
 
@@ -56,11 +57,14 @@ services:
     ports:
       - "8000:8000"
     environment:
-      CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: 8123
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_DB: football_analytics
+      PG_USER: postgres
+      PG_PASSWORD: postgres_dev
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
-      clickhouse:
+      postgres:
         condition: service_healthy
 
   # Frontend React SPA + Nginx
@@ -94,7 +98,7 @@ services:
 ### ✅ Kiểm tra Lần 3: Tương thích Mạng & Reverse Proxy
 - [x] Định tuyến `/api/` trong Nginx trỏ chính xác đến `http://backend:8000/api/`.
 - [x] Định dạng API Response Envelope `{ data, meta }` khớp 100% giữa Spring Boot DTO và React `api.js`.
-- [x] Fallback In-Memory Seed Data hoạt động ổn định khi ClickHouse chưa có dữ liệu từ DE.
+- [x] Fallback In-Memory Seed Data hoạt động ổn định khi cơ sở dữ liệu chưa hoàn tất ingest từ DE.
 
 ---
 
@@ -105,12 +109,12 @@ Người dùng chỉ cần thực hiện 1 lệnh duy nhất:
 # Khởi động toàn bộ stack gồm DE + BE + FE
 docker-compose up -d --build
 ```
-Hoặc chỉ chạy BE và FE:
+Hoặc chỉ chạy PostgreSQL + BE + FE:
 ```bash
-docker-compose up -d --build backend frontend
+docker-compose up -d --build postgres backend frontend
 ```
 
 Sau khi khởi động:
 - **Giao diện Phân tích:** [http://localhost:3000](http://localhost:3000)
 - **Backend API & Swagger/Health:** [http://localhost:8000/health](http://localhost:8000/health)
-- **ClickHouse Web UI / HTTP:** [http://localhost:8123](http://localhost:8123)
+- **PostgreSQL Database:** `localhost:5432` (`football_analytics`)

@@ -10,15 +10,14 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
-# ClickHouse OLAP — inside Docker network, host = 'clickhouse' service
-clickhouse:
-  host: ${CLICKHOUSE_HOST:clickhouse}
-  port: ${CLICKHOUSE_PORT:8123}
-  database: ${CLICKHOUSE_DB:football_analytics}
-  user: ${CLICKHOUSE_USER:default}
-  password: ${CLICKHOUSE_PASSWORD:clickhouse_dev}
-  socket-timeout-ms: 5000
-  connection-timeout-ms: 3000
+# PostgreSQL — inside Docker network, host = 'postgres' service
+postgres:
+  host: ${PG_HOST:postgres}
+  port: ${PG_PORT:5432}
+  database: ${PG_DB:football_analytics}
+  user: ${PG_USER:postgres}
+  password: ${PG_PASSWORD:postgres_dev}
+  ssl: ${PG_SSL:false}
 
 # CORS — frontend container served on port 3000, also allow dev ports
 cors:

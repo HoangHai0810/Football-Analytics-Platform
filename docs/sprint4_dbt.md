@@ -2,15 +2,15 @@
 
 ## Overview
 
-Sprint 4 introduces the data transformation and analytical modeling layer using **dbt-core** and **dbt-clickhouse**.
-This layer transforms raw ingested event and match data in ClickHouse into optimized, pre-aggregated **Analytics Marts** designed for sub-50ms query latencies by Backend APIs and the AI Analyst layer.
+Sprint 4 introduces the data transformation and analytical modeling layer using **dbt-core** (supporting both **dbt-postgres** for primary / cloud deployment and **dbt-clickhouse** for large-scale OLAP).
+This layer transforms raw ingested event and match data in PostgreSQL / ClickHouse into optimized, pre-aggregated **Analytics Marts** designed for sub-50ms query latencies by Backend APIs and the AI Analyst layer.
 
 ---
 
 ## Architecture & Data Lineage
 
 ```
-ClickHouse Raw / Facts               dbt Staging (Views)                 dbt Marts (Tables)
+Raw Facts (Postgres / ClickHouse)      dbt Staging (Views)                 dbt Marts (Tables)
 ┌───────────────────────┐           ┌───────────────────────┐           ┌────────────────────────────┐
 │ fact_event            │ ────────► │ stg_events            │           │                            │
 └───────────────────────┘           └───────────────────────┘           │                            │
@@ -101,6 +101,10 @@ make dbt-docs
 
 ## SLA & Query Latency
 
-All mart tables are materialized with ClickHouse `MergeTree()` indexed on `(season_id, player_id)` and `(season_id, team_id)` respectively. This guarantees sub-50ms execution times for Backend API calls:
+All mart tables are indexed for high concurrency and low latency:
+- **PostgreSQL:** B-Tree indexed on `(player_id)`, `(season_id)`, and `(season_id, team_id)` with primary keys.
+- **ClickHouse:** Materialized with `MergeTree()` ordered by `(season_id, player_id)` and `(season_id, team_id)`.
+
+This guarantees sub-50ms execution times for Backend API calls:
 - `GET /api/v1/players/{id}/stats?season_id={season_id}`
 - `GET /api/v1/teams/{id}/stats?season_id={season_id}`

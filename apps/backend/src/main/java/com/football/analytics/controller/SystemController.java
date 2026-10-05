@@ -1,8 +1,8 @@
-package com.football.analytics.controller;
+﻿package com.football.analytics.controller;
 
 import com.football.analytics.dto.ApiResponse;
 import com.football.analytics.dto.SystemStatusDto;
-import com.football.analytics.repository.ClickHouseRepository;
+import com.football.analytics.repository.PostgresRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -11,10 +11,10 @@ import java.util.Map;
 
 @RestController
 public class SystemController {
-    private final ClickHouseRepository clickHouseRepository;
+    private final PostgresRepository PostgresRepository;
 
-    public SystemController(ClickHouseRepository clickHouseRepository) {
-        this.clickHouseRepository = clickHouseRepository;
+    public SystemController(PostgresRepository PostgresRepository) {
+        this.PostgresRepository = PostgresRepository;
     }
 
     @GetMapping("/health")
@@ -46,12 +46,12 @@ public class SystemController {
         long start = System.currentTimeMillis();
         boolean chOnline = false;
         try {
-            chOnline = clickHouseRepository.testConnection();
+            chOnline = PostgresRepository.testConnection();
         } catch (Exception ignored) {}
 
         String chStatus = chOnline
             ? "ONLINE (Connected to ClickHouse OLAP)"
-            : "OFFLINE (ClickHouse unreachable — no mock fallback)";
+            : "OFFLINE (ClickHouse unreachable â€” no mock fallback)";
         String deStatus = chOnline
             ? "ACTIVE (serving real ingested data)"
             : "BLOCKED (configure CLICKHOUSE_* env vars on Render)";
@@ -60,7 +60,7 @@ public class SystemController {
         Map<String, Long> entityCounts = Collections.emptyMap();
         if (chOnline) {
             try {
-                entityCounts = clickHouseRepository.getEntityCounts();
+                entityCounts = PostgresRepository.getEntityCounts();
             } catch (Exception ignored) {}
         }
         if (entityCounts == null || entityCounts.isEmpty()) {

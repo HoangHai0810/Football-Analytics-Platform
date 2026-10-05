@@ -1,19 +1,30 @@
-# 📜 Data Contract: ClickHouse & Streaming Specifications
+# 📜 Data Contract: Database & Streaming Specifications
 
 > **Mục đích:** Đây là bản giao kèo kỹ thuật (Data Contract) chính thức giữa **Data Engineer (DE)** và **Backend Engineer (BE)**.  
-> **Nguyên tắc:** Bất kỳ thay đổi nào về tên cột, kiểu dữ liệu, hoặc cấu trúc bảng đều phải được thảo luận và thống nhất giữa 2 bên trước khi triển khai.
+> **Nguyên tắc:** Bất kỳ thay đổi nào về tên cột, kiểu dữ liệu, hoặc cấu trúc bảng đều phải được thảo luận và thống nhất giữa 2 bên trước khi triển khai.  
+> **Cơ sở dữ liệu:** **PostgreSQL** là kho lưu trữ dữ liệu phân tích và giao dịch chính (tối ưu hóa cho Free Cloud Tier trên Neon/Supabase/Render và local Docker), kết hợp khả năng mở rộng sang **ClickHouse** khi cần xử lý khối lượng lớn sự kiện phân tích.
 
 ---
 
-## 1. Kết nối ClickHouse (Connection Details)
+## 1. Kết nối Cơ Sở Dữ Liệu (Connection Details)
 
-| Thông số | Giá trị Local | Ghi chú |
-| :--- | :--- | :--- |
-| **HTTP Port** | `8123` | Dành cho REST client / curl / HTTP driver |
-| **Native TCP Port** | `9000` | Dành cho clickhouse-connect / Python client tối ưu |
-| **Database Name** | `football_analytics` | Database chính chứa toàn bộ marts |
-| **User** | `default` | User mặc định dev |
-| **Password** | `clickhouse_dev` | Cấu hình trong `.env` |
+### 1.1. PostgreSQL (Cơ sở dữ liệu chính - Analytics & Transactional)
+| Thông số | Giá trị Local | Biến môi trường | Ghi chú |
+| :--- | :--- | :--- | :--- |
+| **Port** | `5432` | `PG_PORT` | Mặc định PostgreSQL |
+| **Database Name** | `football_analytics` | `PG_DB` | Database chứa toàn bộ schema phân tích |
+| **User** | `postgres` | `PG_USER` | Tài khoản kết nối |
+| **Password** | `postgres_dev` | `PG_PASSWORD` | Cấu hình trong `.env` |
+| **SSL Mode** | `disable` (local) / `require` (cloud) | `PG_SSL` | `true` khi kết nối Neon, Supabase, Render |
+
+### 1.2. ClickHouse (Cơ sở dữ liệu OLAP mở rộng)
+| Thông số | Giá trị Local | Biến môi trường | Ghi chú |
+| :--- | :--- | :--- | :--- |
+| **HTTP Port** | `8123` | `CLICKHOUSE_PORT` / `CLICKHOUSE_HTTP_PORT` | Dành cho REST client / curl / HTTP driver |
+| **Native TCP Port** | `9000` | `CLICKHOUSE_NATIVE_PORT` | Dành cho clickhouse-connect native |
+| **Database Name** | `football_analytics` | `CLICKHOUSE_DB` | Database chính chứa toàn bộ marts |
+| **User** | `default` | `CLICKHOUSE_USER` | User mặc định dev |
+| **Password** | `clickhouse_dev` | `CLICKHOUSE_PASSWORD` | Cấu hình trong `.env` |
 
 ---
 
@@ -196,5 +207,7 @@ Mọi message đẩy vào Kafka topic đều tuân thủ schema JSON này:
 ## 6. Cam kết chất lượng dữ liệu (SLA & Quality Guarantees)
 
 1. **Cam kết tính toàn vẹn:** Mọi `match_id` trong fact tables đều có bản ghi tương ứng trong `dim_match`.
-2. **Khử trùng lặp:** Dữ liệu được deduplicate tự động bằng cơ chế `ReplacingMergeTree`. BE có thể sử dụng cú pháp `SELECT ... FINAL` khi cần dữ liệu tuyệt đối mới nhất trước đợt merge nền.
-3. **Seed Data cho BE:** DE cam kết cung cấp sẵn 10 trận đấu hoàn chỉnh (đủ events, stats) vào ClickHouse để BE tiến hành phát triển API ngay từ Sprint 1.
+2. **Khử trùng lặp (Deduplication & Idempotency):**
+   - **PostgreSQL:** Áp dụng `PRIMARY KEY` + `ON CONFLICT (id) DO UPDATE SET ... updated_at = NOW()`. Đảm bảo tính idempotent tuyệt đối khi nạp lại.
+   - **ClickHouse:** Tự động deduplicate theo partition bằng cơ chế `ReplacingMergeTree(updated_at)`. BE có thể sử dụng `FINAL` khi cần tính nhất quán tức thì trước nền merge.
+3. **Seed Data cho BE:** DE cung cấp script nạp sẵn dữ liệu thực tế từ StatsBomb Open Data (La Liga 2015/2016, 10 trận đấu hoàn chỉnh với hàng chục ngàn events, dim, fact và mart) trực tiếp vào PostgreSQL (`infrastructure/postgres/init_analytics.sql` + `data-platform/ingestion/seed_data.py`).

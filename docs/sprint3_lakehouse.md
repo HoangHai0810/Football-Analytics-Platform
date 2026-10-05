@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Lakehouse Writer** is a consumer that reads raw football data from Kafka topics, validates the payload using the shared validator utilities, converts the records to a Pandas `DataFrame`, writes the data to a Parquet file in‑memory and uploads the file to MinIO. This provides an immutable, query‑able lakehouse layer alongside the ClickHouse analytical store.
+The **Lakehouse Writer** is a consumer that reads raw football data from Kafka topics, validates the payload using the shared validator utilities, converts the records to a Pandas `DataFrame`, writes the data to a Parquet file in‑memory and uploads the file to MinIO. This provides an immutable, query‑able lakehouse layer alongside the PostgreSQL / ClickHouse analytical store.
 
 ## Architecture
 

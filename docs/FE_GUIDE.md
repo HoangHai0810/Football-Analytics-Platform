@@ -90,7 +90,7 @@ npm run dev
 
 ## 5. 🛡️ Xử lý Dữ liệu Ngoại tuyến & Kết nối Backend
 
-Để đảm bảo frontend luôn hoạt động mượt mà ngay cả khi Data Engineering pipeline đang chạy hoặc ClickHouse chưa hoàn tất sync:
+Để đảm bảo frontend luôn hoạt động mượt mà ngay cả khi Data Engineering pipeline đang chạy hoặc cơ sở dữ liệu phân tích (PostgreSQL / ClickHouse) chưa hoàn tất nạp dữ liệu:
 - `api.js` được tích hợp cơ chế **Graceful Fallback**:
   - Gửi request đến Spring Boot REST API (`/api/v1/...`).
   - Nếu kết nối thành công: hiển thị nhãn **LIVE BACKEND** (màu xanh ngọc).

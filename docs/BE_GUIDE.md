@@ -2,26 +2,27 @@
 
 > **Vai trò:** Backend Engineer  
 > **Thư mục phụ trách:** `apps/backend/`  
-> **Techstack cốt lõi:** Java 17, Spring Boot 3.3.4, Maven, ClickHouse JDBC Client  
+> **Techstack cốt lõi:** Java 17, Spring Boot 3.3.4, Maven, PostgreSQL JDBC Driver (`org.postgresql:postgresql`)  
 > **Containerization:** Multi-stage Docker (Maven 3.9 + Temurin JDK 17 builder ➔ Temurin JRE 17 runtime)  
 > **Cổng dịch vụ:** `8000` (Container & Host)  
-> **Điểm đầu vào dữ liệu:** ClickHouse `football_analytics` database (cổng 8123) + High-Fidelity In-Memory Store
+> **Điểm đầu vào dữ liệu:** PostgreSQL `football_analytics` database (cổng 5432 - tương thích Free Cloud Tier Neon/Supabase/Render) + High-Fidelity In-Memory Store
 
 ---
 
 ## 1. 🎯 Mục tiêu chiến lược của BE
 
 ```
-[ClickHouse OLAP] ◄── JDBC Connection ──► [Spring Boot REST API] ──► [Frontend React / Client]
-(football_analytics)                      (apps/backend)              (http://localhost:3000)
-                                                ▲
-                                                │ Fallback / Standby
-                                        [SeedDataStore]
-                                 (High-Fidelity Official Stats)
+[PostgreSQL Database] ◄── JDBC Connection ──► [Spring Boot REST API] ──► [Frontend React / Client]
+(football_analytics)                          (apps/backend)              (http://localhost:3000)
+                                                    ▲
+                                                    │ Fallback / Standby
+                                            [SeedDataStore]
+                                     (High-Fidelity Official Stats)
 ```
 
-- BE là **lớp phục vụ dữ liệu phân tích**: Truy vấn trực tiếp từ ClickHouse data marts (`mart_player_season_stats`, `dim_player`, `dim_match`, `dim_competition`).
-- BE có cơ chế **High-Fidelity Seed Fallback**: Tự động phục vụ dữ liệu mẫu có độ tin cậy cao nếu ClickHouse chưa hoàn tất dữ liệu ingestion từ DE.
+- BE là **lớp phục vụ dữ liệu phân tích**: Truy vấn trực tiếp từ PostgreSQL analytics schema (`mart_player_season_stats`, `dim_player`, `dim_match`, `dim_competition`, `fact_player_match`, `fact_event`).
+- Tối ưu hóa triển khai **100% Free Cloud Deployment**: Sử dụng PostgreSQL cho phép deploy miễn phí trên Neon, Supabase, hoặc Render Postgres mà không bị giới hạn chi phí của ClickHouse Cloud.
+- BE có cơ chế **High-Fidelity Seed Fallback**: Tự động phục vụ dữ liệu mẫu có độ tin cậy cao nếu PostgreSQL chưa hoàn tất nạp dữ liệu.
 - Đảm bảo **Data Integrity & Consistency**: Không sinh số liệu ngẫu nhiên, số liệu tuân thủ nghiêm ngặt data contract.
 
 ---
@@ -35,18 +36,20 @@
 | **Spring Boot** | 3.3.4 | Web MVC, Dependency Injection, Configuration |
 | **Spring Boot Starter Web** | 3.3.4 | REST Controller, JSON Serialization (Jackson) |
 | **Spring Boot Actuator** | 3.3.4 | Production health check & metrics (`/health`, `/actuator/health`) |
-| **ClickHouse JDBC Driver** | 0.6.3 (all) | Kết nối hiệu năng cao với ClickHouse OLAP |
+| **PostgreSQL JDBC Driver** | 42.7.3+ | Kết nối hiệu năng cao với PostgreSQL database (SSL/Direct) |
+| **ClickHouse JDBC Driver** | 0.6.3 (all) | Hỗ trợ mở rộng tùy chọn cho cụm ClickHouse OLAP khi cần |
 | **Maven** | 3.9+ | Quản lý dependencies và build artifact |
 
 ### 2.2. Profiles & Kết Nối Database
-- **Local Profile (`application.yml`)**: Kết nối ClickHouse tại `localhost:8123`.
-- **Docker Profile (`application-docker.yml`)**: Kết nối ClickHouse container qua internal network tại hostname `clickhouse:8123`.
-- Biến môi trường hỗ trợ override linh hoạt:
-  - `CLICKHOUSE_HOST` (mặc định: `localhost` hoặc `clickhouse`)
-  - `CLICKHOUSE_PORT` (mặc định: `8123`)
-  - `CLICKHOUSE_DB` (mặc định: `football_analytics`)
-  - `CLICKHOUSE_USER` (mặc định: `default`)
-  - `CLICKHOUSE_PASSWORD` (mặc định: `clickhouse_dev`)
+- **Local Profile (`application.yml`)**: Kết nối PostgreSQL tại `localhost:5432` hoặc qua biến môi trường.
+- **Docker Profile (`application-docker.yml`)**: Kết nối PostgreSQL container qua internal network tại hostname `postgres:5432`.
+- Biến môi trường hỗ trợ override linh hoạt (chuẩn Cloud & Container):
+  - `PG_HOST` (mặc định: `localhost` hoặc `postgres`, hỗ trợ host Neon/Supabase/Render)
+  - `PG_PORT` (mặc định: `5432`)
+  - `PG_DB` (mặc định: `football_analytics`)
+  - `PG_USER` (mặc định: `postgres`)
+  - `PG_PASSWORD` (mặc định: `postgres_dev` hoặc mật khẩu cloud)
+  - `PG_SSL` (mặc định: `false` cho local, `true` cho cloud database như Neon/Supabase)
 
 ---
 
@@ -83,13 +86,17 @@ apps/backend/
 │   │   │   ├── PlayerStats.java
 │   │   │   └── Team.java
 │   │   ├── repository/
-│   │   │   ├── ClickHouseRepository.java    # Native JDBC queries sang ClickHouse
+│   │   │   ├── PostgresRepository.java      # Native JDBC queries sang PostgreSQL (Chính)
+│   │   │   ├── ClickHouseRepository.java    # Native JDBC queries sang ClickHouse (Tùy chọn)
 │   │   │   └── SeedDataStore.java           # Dữ liệu fallback chuẩn mực
 │   │   └── service/
 │   │       ├── AiAnalystService.java        # Xử lý phân tích chiến thuật
-│   │       └── PlayerService.java           # Business logic + ClickHouse/Seed router
+│   │       ├── PlayerService.java           # Business logic + PostgreSQL/Seed router
+│   │       ├── MatchService.java            # Business logic Match
+│   │       ├── TeamService.java             # Business logic Team
+│   │       └── CompetitionService.java      # Business logic Competition
 │   └── resources/
-│       ├── application.yml                 # Default config (local)
+│       ├── application.yml                 # Default config (local/cloud)
 │       └── application-docker.yml          # Docker container config
 ```
 
@@ -112,10 +119,10 @@ Tất cả endpoints trả về theo định dạng Response Envelope chuẩn:
 | Method | Endpoint | Mô tả |
 | :--- | :--- | :--- |
 | `GET` | `/health` | Container liveness check (`{"status":"ok", ...}`) |
-| `GET` | `/api/v1/system/status` | Tình trạng kết nối ClickHouse, pipeline DE, và counts |
+| `GET` | `/api/v1/system/status` | Tình trạng kết nối PostgreSQL/ClickHouse, pipeline DE, và counts |
 | `GET` | `/api/v1/competitions` | Danh sách giải đấu (Premier League, La Liga, UCL,...) |
 | `GET` | `/api/v1/teams` | Danh sách câu lạc bộ bóng đá |
-| `GET` | `/api/v1/matches` | Danh sách trận đấu (hỗ trợ lọc `?season=2023-24`) |
+| `GET` | `/api/v1/matches` | Danh sách trận đấu (hỗ trợ lọc `?season=2015/2016`) |
 | `GET` | `/api/v1/players` | Danh sách cầu thủ (hỗ trợ tìm kiếm `?q=`, `?position=`) |
 | `GET` | `/api/v1/players/{id}` | Chi tiết thông tin cầu thủ |
 | `GET` | `/api/v1/players/{id}/stats` | Thống kê mùa giải (Goals, xG, Assists, xA, Passes,...) |

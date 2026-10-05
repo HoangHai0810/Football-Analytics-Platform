@@ -3,23 +3,24 @@
 > **Vai trò:** Data Engineer  
 > **Nhánh Git:** `DE/*` (ví dụ: `DE/notthin`)  
 > **Thư mục phụ trách:** `data-platform/`, `dbt/`, `infrastructure/`  
-> **Điểm bàn giao cho BE:** ClickHouse (`football_analytics` database) với dữ liệu đã được làm sạch và mô hình hóa.
+> **Điểm bàn giao cho BE:** PostgreSQL database (`football_analytics`) với schema `infrastructure/postgres/init_analytics.sql` sẵn sàng cho môi trường Free Cloud (Neon, Supabase, Render) và local Docker, cùng ClickHouse OLAP schema.
 
 ---
 
 ## 1. 🎯 Mục tiêu chiến lược của DE
 
 ```
-[Nguồn dữ liệu ngoài] ──► [DE sở hữu toàn bộ đoạn này] ──► [ClickHouse] ──► [BE sử dụng]
+[Nguồn dữ liệu ngoài] ──► [DE sở hữu toàn bộ đoạn này] ──► [PostgreSQL / ClickHouse] ──► [BE sử dụng]
 
 football-data.org ──┐
-                    ├──► Ingestion ──► Kafka ──► MinIO (Raw) ──► ETL ──► ClickHouse Marts
+                    ├──► Ingestion ──► Kafka ──► MinIO (Raw) ──► ETL/Seed ──► Analytics Marts
 StatsBomb OpenData ─┘
 ```
 
-- DE là **chủ sở hữu dữ liệu**: mọi con số trong ClickHouse phải do DE đảm bảo tính chính xác.
-- DE cung cấp **Seed Data sớm nhất có thể** để BE không phải chờ pipeline hoàn chỉnh mới làm được việc.
-- DE thiết kế **schema ClickHouse** và không thay đổi tên cột/kiểu dữ liệu mà không thông báo BE trước.
+- DE là **chủ sở hữu dữ liệu**: mọi con số trong database phân tích phải do DE đảm bảo tính chính xác.
+- DE cung cấp **Seed Data sớm nhất có thể**: script `data-platform/ingestion/seed_data.py` tự động khởi tạo schema và nạp 10 trận La Liga thực tế từ StatsBomb Open Data.
+- Hỗ trợ kiến trúc linh hoạt: **PostgreSQL** là kho lưu trữ mặc định (100% Free Cloud Tier, không tốn phí duy trì), và **ClickHouse** là giải pháp mở rộng quy mô lớn (High-volume OLAP).
+- DE thiết kế **schema chuẩn hóa** và không thay đổi tên cột/kiểu dữ liệu mà không thông báo BE trước theo [Data Contract](./data_contract.md).
 
 ---
 
@@ -48,19 +49,22 @@ StatsBomb OpenData ─┘
 | **AWS S3** | Raw storage cho Production | Sử dụng cùng SDK `boto3` — chỉ đổi endpoint |
 | **boto3** | Python SDK tương tác MinIO/S3 | `pip install boto3` |
 
-### 2.4. Analytical Database
+### 2.4. Analytical & Operational Database
 
 | Công cụ | Vai trò | Ghi chú |
 | :--- | :--- | :--- |
-| **ClickHouse** | OLAP engine chứa toàn bộ dữ liệu phân tích | Chạy Docker, port `8123` (HTTP) / `9000` (Native) |
+| **PostgreSQL** | Primary Analytics & Transactional Store | Tương thích Neon, Supabase, Render Free Tier & Docker |
+| **psycopg2-binary** | Python driver kết nối PostgreSQL | Hỗ trợ transaction, execute_values batch, SSL mode |
+| **ClickHouse** | OLAP engine cho kịch bản sự kiện siêu lớn | Chạy Docker port `8123` (HTTP) / `9000` (Native) |
 | **clickhouse-connect** | Python client chính thức cho ClickHouse | Hỗ trợ async, insert batch, query trả về DataFrame |
 
 ### 2.5. Transformations & Modeling
 
 | Công cụ | Vai trò | Ghi chú |
 | :--- | :--- | :--- |
-| **dbt-core** | Quản lý SQL transformation models, tests | `pip install dbt-core dbt-clickhouse` |
-| **dbt-clickhouse** | Adapter kết nối dbt với ClickHouse | Cần cấu hình `profiles.yml` |
+| **dbt-core** | Quản lý SQL transformation models, tests | `pip install dbt-core dbt-postgres dbt-clickhouse` |
+| **dbt-postgres** | Adapter kết nối dbt với PostgreSQL | Khuyến nghị cho Free Tier deployment |
+| **dbt-clickhouse** | Adapter kết nối dbt với ClickHouse | Dành cho cụm ClickHouse |
 
 ### 2.6. Orchestration & Scheduling
 
@@ -92,11 +96,11 @@ StatsBomb OpenData ─┘
 
 > **Mục tiêu:** Dựng được môi trường local và cung cấp Seed Data cho BE làm việc.
 
-- [ ] **Thiết lập Docker Compose** với đủ 6 service: ClickHouse, Redpanda, MinIO, Kestra, PostgreSQL, Redis.
-- [ ] **Tạo Makefile** với các lệnh cơ bản: `make up`, `make down`, `make logs`.
-- [ ] **Viết DDL ClickHouse** (trong `infrastructure/clickhouse/`) — tạo database `football_analytics` và tất cả bảng `dim_*`, `fact_*`.
-- [ ] **Script Seed Data** — dùng StatsBomb Python library (`statsbombpy`) load khoảng 5–10 trận từ dataset free và nạp thẳng vào ClickHouse để BE có dữ liệu làm việc ngay.
-- [ ] **Xác nhận với BE** về schema (tên cột, kiểu dữ liệu) đã khớp với [Data Contract](./data_contract.md).
+- [x] **Thiết lập Docker Compose** với PostgreSQL (`football_analytics`), Redis, Redpanda, MinIO, Kestra, và backend/frontend.
+- [x] **Tạo Makefile** với các lệnh cơ bản: `make up`, `make down`, `make logs`.
+- [x] **Viết DDL PostgreSQL & ClickHouse** — tạo database `football_analytics`, schema `infrastructure/postgres/init_analytics.sql` và `infrastructure/clickhouse/init.sql` với đầy đủ `dim_*`, `fact_*`, `mart_*`.
+- [x] **Script Seed Data** — script `data-platform/ingestion/seed_data.py` (sử dụng `psycopg2-binary`) load dữ liệu giải La Liga 2015/2016 từ StatsBomb Open Data và nạp thẳng vào PostgreSQL để BE có dữ liệu làm việc ngay.
+- [x] **Xác nhận với BE** về schema (tên cột, kiểu dữ liệu) đã khớp với [Data Contract](./data_contract.md).
 
 ```python
 # Ví dụ: Seed Data nhanh bằng statsbombpy
@@ -230,8 +234,8 @@ events = sb.events(match_id=7430)
 
 | Điều BE cần | DE phải cung cấp |
 | :--- | :--- |
-| Truy vấn thống kê cầu thủ | Bảng `mart_player_season_stats` trong ClickHouse luôn có dữ liệu |
+| Truy vấn thống kê cầu thủ | Bảng `mart_player_season_stats` trong PostgreSQL / ClickHouse luôn có dữ liệu |
 | Tọa độ cú sút cho Shot Map | Cột `x`, `y`, `xg`, `outcome` trong `fact_event` với `event_type = 'SHOT'` |
 | Thông tin đội bóng | Bảng `dim_team` đầy đủ `team_id`, `name`, `logo_url` |
-| Dữ liệu mới nhất | Seed data kịp thời; Kestra pipeline chạy đúng lịch hàng ngày |
+| Dữ liệu mới nhất | Seed data kịp thời; Kestra pipeline / GitHub Actions cron chạy đúng lịch hàng ngày |
 | Schema ổn định | Thông báo BE **ít nhất 1 ngày trước** khi thay đổi cấu trúc bảng |

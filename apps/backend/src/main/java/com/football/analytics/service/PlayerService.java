@@ -1,11 +1,11 @@
-package com.football.analytics.service;
+﻿package com.football.analytics.service;
 
 import com.football.analytics.dto.ComparisonDto;
 import com.football.analytics.exception.ResourceNotFoundException;
 import com.football.analytics.model.Player;
 import com.football.analytics.model.PlayerSeasonStats;
 import com.football.analytics.model.ShotEvent;
-import com.football.analytics.repository.ClickHouseRepository;
+import com.football.analytics.repository.PostgresRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,15 +16,15 @@ import java.util.*;
 public class PlayerService {
     private static final Logger log = LoggerFactory.getLogger(PlayerService.class);
 
-    private final ClickHouseRepository clickHouseRepository;
+    private final PostgresRepository PostgresRepository;
 
-    public PlayerService(ClickHouseRepository clickHouseRepository) {
-        this.clickHouseRepository = clickHouseRepository;
+    public PlayerService(PostgresRepository PostgresRepository) {
+        this.PostgresRepository = PostgresRepository;
     }
 
     public List<Player> getAllPlayers(String query, String position) {
         try {
-            List<Player> players = clickHouseRepository.getAllPlayers(query, position);
+            List<Player> players = PostgresRepository.getAllPlayers(query, position);
             return players != null ? players : Collections.emptyList();
         } catch (Exception e) {
             log.error("ClickHouse players query failed: {}", e.getMessage());
@@ -34,7 +34,7 @@ public class PlayerService {
 
     public Player getPlayerById(Long id) {
         try {
-            return clickHouseRepository.getPlayer(id)
+            return PostgresRepository.getPlayer(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                     "PLAYER_NOT_FOUND", "Player with id " + id + " not found."));
         } catch (ResourceNotFoundException e) {
@@ -49,7 +49,7 @@ public class PlayerService {
     public PlayerSeasonStats getPlayerStats(Long playerId, Long seasonId) {
         getPlayerById(playerId);
         try {
-            return clickHouseRepository.getPlayerStats(playerId, seasonId)
+            return PostgresRepository.getPlayerStats(playerId, seasonId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                     "STATS_NOT_FOUND",
                     "Statistics for player " + playerId + " in season " + seasonId + " not found."));
@@ -66,7 +66,7 @@ public class PlayerService {
     public List<ShotEvent> getPlayerShots(Long playerId, Long seasonId) {
         getPlayerById(playerId);
         try {
-            List<ShotEvent> shots = clickHouseRepository.getPlayerShots(playerId, seasonId);
+            List<ShotEvent> shots = PostgresRepository.getPlayerShots(playerId, seasonId);
             return shots != null ? shots : Collections.emptyList();
         } catch (Exception e) {
             log.error("ClickHouse getPlayerShots query failed: {}", e.getMessage());
