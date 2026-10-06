@@ -216,148 +216,391 @@ def sync_team_squad(cur, client, team_id: int, country: str):
         count += 1
     return count
 
-
 def sync_via_football_data_org(cur, conn, api_key: str):
     import httpx
 
     now = datetime.now(timezone.utc)
-    date_from = (now - timedelta(days=DAYS_BACK)).strftime("%Y-%m-%d")
-    date_to = (now + timedelta(days=DAYS_FORWARD)).strftime("%Y-%m-%d")
+    start_date = (now - timedelta(days=DAYS_BACK)).date()
+    end_date = (now + timedelta(days=DAYS_FORWARD)).date()
 
-    print(f"🔄 Rolling Window Sync: {date_from} → {date_to} via football-data.org")
+    # football-data.org /v4/matches allows a maximum dateFrom/dateTo
+    # period of 10 calendar days (inclusive).
+    MAX_API_WINDOW_DAYS = 10
+
+    def date_chunks(start, end, max_days=MAX_API_WINDOW_DAYS):
+        """Yield inclusive date ranges no larger than max_days."""
+        current = start
+
+        while current <= end:
+            chunk_end = min(
+                current + timedelta(days=max_days - 1),
+                end,
+            )
+
+            yield current, chunk_end
+            current = chunk_end + timedelta(days=1)
+
+    chunks = list(date_chunks(start_date, end_date))
+
+    print(
+        f"🔄 Rolling Window Sync: "
+        f"{start_date} → {end_date} "
+        f"({(end_date - start_date).days + 1} calendar days)"
+    )
+    print(
+        f"📦 API window limit: {MAX_API_WINDOW_DAYS} days "
+        f"→ {len(chunks)} request(s)"
+    )
 
     headers = {"X-Auth-Token": api_key}
-    url = f"https://api.football-data.org/v4/matches?dateFrom={date_from}&dateTo={date_to}"
+
+    # Keep matches keyed by football-data match ID so that even if
+    # windows ever overlap, we don't process the same match twice.
+    all_matches = {}
 
     try:
         with httpx.Client(headers=headers, timeout=30.0) as client:
-            res = client.get(url)
-            if res.status_code == 429:
-                print("⚠️ Rate limit reached on football-data.org. Waiting 15s...")
-                time.sleep(15)
-                res = client.get(url)
-            if res.status_code == 403:
-                print("❌ FOOTBALL_DATA_API_KEY rejected (403). Check the secret value.")
-                return 0
-            res.raise_for_status()
-            data = res.json()
 
-            matches = data.get("matches", [])
-            if not matches:
-                print(f"ℹ️ No matches found in window {date_from} to {date_to}.")
-                return 0
+            for index, (chunk_start, chunk_end) in enumerate(chunks, 1):
+                date_from = chunk_start.isoformat()
+                date_to = chunk_end.isoformat()
 
-            print(f"📋 Found {len(matches)} match(es) across tracked competitions.")
+                print(
+                    f"📡 [{index}/{len(chunks)}] "
+                    f"Fetching {date_from} → {date_to}"
+                )
 
-            team_ids = set()
-            synced_count = 0
+                params = {
+                    "dateFrom": date_from,
+                    "dateTo": date_to,
+                }
 
-            for m in matches:
-                comp = m.get("competition") or {}
-                season = m.get("season") or {}
-                home_team = m.get("homeTeam") or {}
-                away_team = m.get("awayTeam") or {}
-                score = m.get("score") or {}
-                full_time = score.get("fullTime") or {}
-
-                comp_id = int(comp.get("id") or 0)
-                if not comp_id:
-                    continue
-
-                comp_name = comp.get("name", "Unknown Competition")
-                country = (comp.get("area") or {}).get("name", "")
-                season_id = int(season.get("id") or 0) or int(str(season.get("startDate", "2024"))[:4] or 2024)
-                start_y = (season.get("startDate") or "2024")[:4]
-                end_y = (season.get("endDate") or "2025")[:4]
-                season_name = f"{start_y}/{end_y}"
-
-                cur.execute("""
-                    INSERT INTO dim_competition (competition_id, name, country, type)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (competition_id) DO UPDATE
-                      SET name=EXCLUDED.name, country=EXCLUDED.country, updated_at=NOW()
-                """, (comp_id, comp_name, country, "LEAGUE"))
-
-                cur.execute("""
-                    INSERT INTO dim_season (season_id, competition_id, name)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (competition_id, season_id) DO UPDATE
-                      SET name=EXCLUDED.name, updated_at=NOW()
-                """, (season_id, comp_id, season_name))
-
-                for t in [home_team, away_team]:
-                    t_id = int(t.get("id") or 0)
-                    if t_id:
-                        team_ids.add(t_id)
-                        upsert_team(cur, t_id, t.get("name", "Unknown"), country, t.get("crest") or "")
-
-                match_id = int(m.get("id"))
-                raw_status = str(m.get("status", "FINISHED")).upper()
-                if raw_status in ("IN_PLAY", "PAUSED", "LIVE"):
-                    status = "LIVE"
-                elif raw_status in ("TIMED", "SCHEDULED"):
-                    status = "SCHEDULED"
-                elif raw_status in ("POSTPONED", "CANCELLED", "SUSPENDED"):
-                    status = "POSTPONED"
-                else:
-                    status = "FINISHED"
-
-                utc_date_str = m.get("utcDate", "")
                 try:
-                    m_dt = datetime.fromisoformat(utc_date_str.replace("Z", "+00:00"))
-                except Exception:
-                    print(f"  ⚠️ Skipping match {match_id}: invalid utcDate")
-                    continue
+                    res = client.get(
+                        "https://api.football-data.org/v4/matches",
+                        params=params,
+                    )
 
-                home_id = int(home_team.get("id") or 0)
-                away_id = int(away_team.get("id") or 0)
+                    if res.status_code == 429:
+                        print(
+                            "⚠️ Rate limit reached on "
+                            "football-data.org. Waiting 15s..."
+                        )
+                        time.sleep(15)
 
-                cur.execute("""
-                    INSERT INTO dim_match (match_id, competition_id, season_id, home_team_id, away_team_id, match_date, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (match_id) DO UPDATE
-                      SET status=EXCLUDED.status, match_date=EXCLUDED.match_date, updated_at=NOW()
-                """, (match_id, comp_id, season_id, home_id, away_id, m_dt, status))
+                        res = client.get(
+                            "https://api.football-data.org/v4/matches",
+                            params=params,
+                        )
 
-                # Scores only — NEVER invent xG from score formulas
-                h_score = full_time.get("home")
-                a_score = full_time.get("away")
-                h_score_i = int(h_score) if h_score is not None else 0
-                a_score_i = int(a_score) if a_score is not None else 0
+                    if res.status_code == 403:
+                        print(
+                            "❌ FOOTBALL_DATA_API_KEY rejected (403). "
+                            "Check the secret value."
+                        )
+                        return 0
 
-                cur.execute("""
-                    INSERT INTO fact_match (match_id, home_team_id, away_team_id, home_score, away_score, home_xg, away_xg, attendance, duration)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (match_id) DO UPDATE
-                      SET home_score=EXCLUDED.home_score, away_score=EXCLUDED.away_score
-                """, (match_id, home_id, away_id, h_score_i, a_score_i, 0, 0, 0, 90))
+                    if res.status_code == 400:
+                        print(
+                            f"❌ Bad request for {date_from} → {date_to}: "
+                            f"{res.text}"
+                        )
+                        return 0
 
-                synced_count += 1
-                kickoff = m_dt.strftime("%Y-%m-%d %H:%M UTC")
-                score_txt = f"{h_score_i}-{a_score_i}" if status == "FINISHED" else "-:-"
-                print(f"  ⚽ [{status}] {kickoff} | {home_team.get('name')} {score_txt} {away_team.get('name')} ({comp_name})")
+                    res.raise_for_status()
 
-            conn.commit()
+                    data = res.json()
+                    matches = data.get("matches", [])
 
-            # Sync squads for teams seen in this window (rate-limit friendly)
-            print(f"👥 Syncing squads for {len(team_ids)} team(s)...")
-            total_players = 0
-            for i, tid in enumerate(sorted(team_ids)):
-                n = sync_team_squad(cur, client, tid, "")
-                total_players += n
-                if i < len(team_ids) - 1:
-                    time.sleep(6.5)  # free tier ~10 req/min
-                if (i + 1) % 5 == 0:
-                    conn.commit()
-                    print(f"  … {i + 1}/{len(team_ids)} teams, {total_players} players so far")
+                    print(
+                        f"   ↳ {len(matches)} match(es) returned"
+                    )
 
-            conn.commit()
-            print(f"✅ Synced {synced_count} match(es), {total_players} player roster rows.")
-            return synced_count
+                    for match in matches:
+                        match_id = match.get("id")
+
+                        if match_id is not None:
+                            all_matches[int(match_id)] = match
+
+                except httpx.HTTPError as e:
+                    print(
+                        f"❌ HTTP error for "
+                        f"{date_from} → {date_to}: {e}"
+                    )
+                    return 0
+
+                # Be conservative with the free-tier API.
+                if index < len(chunks):
+                    time.sleep(1.0)
+
+        matches = list(all_matches.values())
+
+        if not matches:
+            print(
+                f"ℹ️ No matches found in window "
+                f"{start_date} to {end_date}."
+            )
+            return 0
+
+        print(
+            f"📋 Found {len(matches)} unique match(es) "
+            f"across tracked competitions."
+        )
+
+        team_ids = set()
+        synced_count = 0
+
+        for m in matches:
+            comp = m.get("competition") or {}
+            season = m.get("season") or {}
+            home_team = m.get("homeTeam") or {}
+            away_team = m.get("awayTeam") or {}
+            score = m.get("score") or {}
+            full_time = score.get("fullTime") or {}
+
+            comp_id = int(comp.get("id") or 0)
+            if not comp_id:
+                continue
+
+            comp_name = comp.get("name", "Unknown Competition")
+            country = (comp.get("area") or {}).get("name", "")
+
+            season_id = (
+                int(season.get("id") or 0)
+                or int(
+                    str(season.get("startDate", "2024"))[:4]
+                    or 2024
+                )
+            )
+
+            start_y = (season.get("startDate") or "2024")[:4]
+            end_y = (season.get("endDate") or "2025")[:4]
+            season_name = f"{start_y}/{end_y}"
+
+            cur.execute("""
+                INSERT INTO dim_competition
+                    (competition_id, name, country, type)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (competition_id) DO UPDATE
+                  SET name=EXCLUDED.name,
+                      country=EXCLUDED.country,
+                      updated_at=NOW()
+            """, (
+                comp_id,
+                comp_name,
+                country,
+                "LEAGUE",
+            ))
+
+            cur.execute("""
+                INSERT INTO dim_season
+                    (season_id, competition_id, name)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (competition_id, season_id) DO UPDATE
+                  SET name=EXCLUDED.name,
+                      updated_at=NOW()
+            """, (
+                season_id,
+                comp_id,
+                season_name,
+            ))
+
+            for t in [home_team, away_team]:
+                t_id = int(t.get("id") or 0)
+
+                if t_id:
+                    team_ids.add(t_id)
+
+                    upsert_team(
+                        cur,
+                        t_id,
+                        t.get("name", "Unknown"),
+                        country,
+                        t.get("crest") or "",
+                    )
+
+            match_id = int(m.get("id"))
+
+            raw_status = str(
+                m.get("status", "FINISHED")
+            ).upper()
+
+            if raw_status in (
+                "IN_PLAY",
+                "PAUSED",
+                "LIVE",
+            ):
+                status = "LIVE"
+
+            elif raw_status in (
+                "TIMED",
+                "SCHEDULED",
+            ):
+                status = "SCHEDULED"
+
+            elif raw_status in (
+                "POSTPONED",
+                "CANCELLED",
+                "SUSPENDED",
+            ):
+                status = "POSTPONED"
+
+            else:
+                status = "FINISHED"
+
+            utc_date_str = m.get("utcDate", "")
+
+            try:
+                m_dt = datetime.fromisoformat(
+                    utc_date_str.replace("Z", "+00:00")
+                )
+            except Exception:
+                print(
+                    f"  ⚠️ Skipping match {match_id}: "
+                    f"invalid utcDate"
+                )
+                continue
+
+            home_id = int(home_team.get("id") or 0)
+            away_id = int(away_team.get("id") or 0)
+
+            cur.execute("""
+                INSERT INTO dim_match
+                    (
+                        match_id,
+                        competition_id,
+                        season_id,
+                        home_team_id,
+                        away_team_id,
+                        match_date,
+                        status
+                    )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (match_id) DO UPDATE
+                  SET status=EXCLUDED.status,
+                      match_date=EXCLUDED.match_date,
+                      updated_at=NOW()
+            """, (
+                match_id,
+                comp_id,
+                season_id,
+                home_id,
+                away_id,
+                m_dt,
+                status,
+            ))
+
+            # Scores only — NEVER invent xG from score formulas.
+            h_score = full_time.get("home")
+            a_score = full_time.get("away")
+
+            h_score_i = (
+                int(h_score)
+                if h_score is not None
+                else 0
+            )
+
+            a_score_i = (
+                int(a_score)
+                if a_score is not None
+                else 0
+            )
+
+            cur.execute("""
+                INSERT INTO fact_match
+                    (
+                        match_id,
+                        home_team_id,
+                        away_team_id,
+                        home_score,
+                        away_score,
+                        home_xg,
+                        away_xg,
+                        attendance,
+                        duration
+                    )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (match_id) DO UPDATE
+                  SET home_score=EXCLUDED.home_score,
+                      away_score=EXCLUDED.away_score
+            """, (
+                match_id,
+                home_id,
+                away_id,
+                h_score_i,
+                a_score_i,
+                0,
+                0,
+                0,
+                90,
+            ))
+
+            synced_count += 1
+
+            kickoff = m_dt.strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
+
+            if status == "FINISHED":
+                score_txt = f"{h_score_i}-{a_score_i}"
+            elif status == "LIVE":
+                score_txt = f"{h_score_i}-{a_score_i}"
+            else:
+                score_txt = "-:-"
+
+            print(
+                f"  ⚽ [{status}] {kickoff} | "
+                f"{home_team.get('name')} "
+                f"{score_txt} "
+                f"{away_team.get('name')} "
+                f"({comp_name})"
+            )
+
+        conn.commit()
+
+        # Sync squads for teams seen in this window.
+        print(
+            f"👥 Syncing squads for "
+            f"{len(team_ids)} team(s)..."
+        )
+
+        total_players = 0
+
+        for i, tid in enumerate(sorted(team_ids)):
+            n = sync_team_squad(
+                cur,
+                client,
+                tid,
+                "",
+            )
+
+            total_players += n
+
+            if i < len(team_ids) - 1:
+                time.sleep(6.5)
+
+            if (i + 1) % 5 == 0:
+                conn.commit()
+                print(
+                    f"  … {i + 1}/{len(team_ids)} teams, "
+                    f"{total_players} players so far"
+                )
+
+        conn.commit()
+
+        print(
+            f"✅ Synced {synced_count} match(es), "
+            f"{total_players} player roster rows."
+        )
+
+        return synced_count
+
     except Exception as e:
-        print(f"❌ Failed to sync from football-data.org: {e}")
+        print(
+            f"❌ Failed to sync from "
+            f"football-data.org: {e}"
+        )
         return 0
-
 
 def backfill_players_from_statsbomb_lineups(cur, conn, max_matches: int = 30):
     """Ensure dim_player has real lineup players from already-stored StatsBomb matches."""
