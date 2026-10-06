@@ -44,11 +44,9 @@ MAX_MATCHES_PER_SEASON = int(os.getenv("MAX_MATCHES_PER_SEASON", "10"))
 MIN_SEASON_YEAR = int(os.getenv("MIN_SEASON_YEAR", "2015"))
 
 TEAM_LOGOS = {
-    217: "https://crests.football-data.org/81.png",
-    220: "https://crests.football-data.org/86.png",
-    212: "https://crests.football-data.org/78.png",
-    206: "https://crests.football-data.org/559.png",
-    213: "https://crests.football-data.org/558.png",
+    # Only map when StatsBomb team_id is verified against football-data crest IDs.
+    # Prefer leaving logo empty and letting football-data sync fill crests —
+    # incorrect hardcoded maps caused wrong logos (e.g. women's teams showing club crests).
 }
 
 
@@ -178,20 +176,24 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
         for team_col, name_col in [("home_team_id", "home_team"), ("away_team_id", "away_team")]:
             t_id = int(m[team_col])
             t_name = str(m[name_col])
-            logo = TEAM_LOGOS.get(t_id, f"https://ui-avatars.com/api/?name={urllib.parse.quote(t_name)}&background=0f172a&color=38bdf8&bold=true")
+            # Do not invent logos — empty until a verified crest is available
+            logo = TEAM_LOGOS.get(t_id, "")
             cur.execute("""
                 INSERT INTO dim_team (team_id, name, country, stadium, logo_url)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (team_id) DO UPDATE
-                  SET name=EXCLUDED.name, logo_url=EXCLUDED.logo_url, updated_at=NOW()
-            """, (t_id, t_name, comp_name, "Stadium of " + t_name, logo))
+                  SET name=EXCLUDED.name,
+                      logo_url=COALESCE(NULLIF(EXCLUDED.logo_url, ''), dim_team.logo_url),
+                      updated_at=NOW()
+            """, (t_id, t_name, comp_name, "", logo))
 
         # dim_match
         m_date_str = str(m.get("match_date", ""))
         try:
-            m_dt = datetime.strptime(m_date_str, "%Y-%m-%d")
+            m_dt = datetime.strptime(m_date_str[:10], "%Y-%m-%d")
         except Exception:
-            m_dt = datetime.now()
+            print(f"  ⚠️ Skipping match {match_id}: invalid match_date '{m_date_str}'")
+            continue
 
         cur.execute("""
             INSERT INTO dim_match (match_id, competition_id, season_id, home_team_id, away_team_id, match_date, status)
@@ -202,10 +204,11 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
                int(m["home_team_id"]), int(m["away_team_id"]), m_dt, "FINISHED"))
 
         # fact_match
-        home_score = int(m.get("home_score", 0))
-        away_score = int(m.get("away_score", 0))
-        home_xg = float(m.get("home_team_xg") or round(home_score * 0.8 + 0.4, 2))
-        away_xg = float(m.get("away_team_xg") or round(away_score * 0.8 + 0.3, 2))
+        home_score = int(m.get("home_score", 0) or 0)
+        away_score = int(m.get("away_score", 0) or 0)
+        # Only store real xG from StatsBomb — never invent from score
+        home_xg = float(m["home_team_xg"]) if m.get("home_team_xg") is not None else 0.0
+        away_xg = float(m["away_team_xg"]) if m.get("away_team_xg") is not None else 0.0
         cur.execute("""
             INSERT INTO fact_match (match_id, home_team_id, away_team_id, home_score, away_score, home_xg, away_xg, attendance, duration)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -213,7 +216,7 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
               SET home_score=EXCLUDED.home_score, away_score=EXCLUDED.away_score,
                   home_xg=EXCLUDED.home_xg, away_xg=EXCLUDED.away_xg
         """, (match_id, int(m["home_team_id"]), int(m["away_team_id"]),
-               home_score, away_score, home_xg, away_xg, 65400, 90))
+               home_score, away_score, home_xg, away_xg, 0, 90))
 
         # Check if match events already ingested to avoid re-downloading
         cur.execute("SELECT 1 FROM fact_player_match WHERE match_id = %s LIMIT 1", (match_id,))
@@ -231,12 +234,12 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
                     pid = int(p_row["player_id"])
                     pname = str(p_row.get("player_name") or p_row.get("player_nickname") or "").strip()
                     p_country = str(p_row.get("country") or "International").strip()
-                    p_jersey = int(p_row.get("jersey_number") or 10)
+                    p_jersey = int(p_row.get("jersey_number") or 0)
 
                     positions_list = p_row.get("positions")
-                    pos_short = "FW"
+                    pos_short = ""
                     if isinstance(positions_list, list) and len(positions_list) > 0:
-                        pos_name = str(positions_list[0].get("position", "Forward"))
+                        pos_name = str(positions_list[0].get("position", ""))
                         if any(k in pos_name for k in ["Forward", "Striker", "Wing"]):
                             pos_short = "FW"
                         elif any(k in pos_name for k in ["Midfield"]):
@@ -246,16 +249,18 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
                         elif "Goalkeeper" in pos_name:
                             pos_short = "GK"
 
-                    avatar = f"https://ui-avatars.com/api/?name={urllib.parse.quote(pname)}&background=0f172a&color=38bdf8&bold=true&size=128"
+                    # No reliable open photo URL from StatsBomb lineups — leave empty
+                    avatar = ""
 
                     cur.execute("""
                         INSERT INTO dim_player (player_id, name, date_of_birth, nationality, position, preferred_foot, jersey_number, avatar_url)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (player_id) DO UPDATE
                           SET name=EXCLUDED.name, nationality=EXCLUDED.nationality,
-                              position=EXCLUDED.position, jersey_number=EXCLUDED.jersey_number,
-                              avatar_url=EXCLUDED.avatar_url, updated_at=NOW()
-                    """, (pid, pname, None, p_country, pos_short, "RIGHT", p_jersey, avatar))
+                              position=COALESCE(NULLIF(EXCLUDED.position, ''), dim_player.position),
+                              jersey_number=CASE WHEN EXCLUDED.jersey_number > 0 THEN EXCLUDED.jersey_number ELSE dim_player.jersey_number END,
+                              updated_at=NOW()
+                    """, (pid, pname, None, p_country, pos_short, "", p_jersey, avatar))
             conn.commit()
         except Exception as e:
             print(f"    ⚠️ Could not fetch lineups for match {match_id}: {e}")
@@ -301,36 +306,27 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
             if pid:
                 if pid not in player_seen:
                     player_seen.add(pid)
-                    pos = raw.get("position", "FW")
-                    pos_name = pos.get("name", "FW") if isinstance(pos, dict) else str(pos or "FW")
-                    pos_short = ("FW" if any(k in pos_name for k in ["Forward", "Striker", "Wing"])
-                                 else ("MF" if "Midfield" in pos_name
-                                       else ("DF" if "Back" in pos_name else "GK")))
-                    player_nat = "International"
-                    if comp_type == "INTERNATIONAL":
-                        t_name = str(m.get("home_team" if tid == int(m.get("home_team_id", 0)) else "away_team", "")).replace(" Women's", "").strip()
-                        player_nat = t_name if t_name else "International"
-                    else:
-                        c_lower = comp_name.lower()
-                        if "spain" in c_lower or "la liga" in c_lower:
-                            player_nat = "Spain"
-                        elif "france" in c_lower or "ligue" in c_lower:
-                            player_nat = "France"
-                        elif "england" in c_lower or "premier" in c_lower:
-                            player_nat = "England"
-                        elif "germany" in c_lower or "bundesliga" in c_lower:
-                            player_nat = "Germany"
-                        elif "italy" in c_lower or "serie" in c_lower:
-                            player_nat = "Italy"
-                        else:
-                            player_nat = str(m.get("country_name") or "International")
-
+                    pos = raw.get("position", "")
+                    pos_name = pos.get("name", "") if isinstance(pos, dict) else str(pos or "")
+                    pos_short = ""
+                    if any(k in pos_name for k in ["Forward", "Striker", "Wing"]):
+                        pos_short = "FW"
+                    elif "Midfield" in pos_name:
+                        pos_short = "MF"
+                    elif any(k in pos_name for k in ["Back", "Defender"]):
+                        pos_short = "DF"
+                    elif "Goalkeeper" in pos_name:
+                        pos_short = "GK"
+                    # Never invent nationality from competition country heuristics
                     cur.execute("""
-                        INSERT INTO dim_player (player_id, name, date_of_birth, nationality, position, preferred_foot)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        INSERT INTO dim_player (player_id, name, date_of_birth, nationality, position, preferred_foot, jersey_number, avatar_url, team_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (player_id) DO UPDATE
-                          SET name=EXCLUDED.name, nationality=EXCLUDED.nationality, position=EXCLUDED.position, updated_at=NOW()
-                    """, (pid, pname, None, player_nat, pos_short, "RIGHT"))
+                          SET name=EXCLUDED.name,
+                              position=COALESCE(NULLIF(EXCLUDED.position, ''), dim_player.position),
+                              team_id=CASE WHEN EXCLUDED.team_id > 0 THEN EXCLUDED.team_id ELSE dim_player.team_id END,
+                              updated_at=NOW()
+                    """, (pid, pname, None, "", pos_short, "", 0, "", tid or 0))
 
                 pm_key = (match_id, pid)
                 if pm_key not in all_player_matches:

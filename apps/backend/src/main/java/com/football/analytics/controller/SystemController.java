@@ -50,12 +50,12 @@ public class SystemController {
         } catch (Exception ignored) {}
 
         String chStatus = chOnline
-            ? "ONLINE (Connected to ClickHouse OLAP)"
-            : "OFFLINE (ClickHouse unreachable â€” no mock fallback)";
+            ? "ONLINE (Connected to PostgreSQL)"
+            : "OFFLINE (PostgreSQL unreachable — no mock fallback)";
         String deStatus = chOnline
             ? "ACTIVE (serving real ingested data)"
-            : "BLOCKED (configure CLICKHOUSE_* env vars on Render)";
-        String activeSource = chOnline ? "CLICKHOUSE_LIVE" : "NONE";
+            : "BLOCKED (configure PG_* / DATABASE_URL env vars)";
+        String activeSource = chOnline ? "POSTGRES_LIVE" : "NONE";
 
         Map<String, Long> entityCounts = Collections.emptyMap();
         if (chOnline) {
@@ -75,7 +75,7 @@ public class SystemController {
 
         SystemStatusDto statusDto = new SystemStatusDto(
             chOnline ? "HEALTHY" : "DEGRADED",
-            "1.0.0 (Spring Boot 3.3.4 + ClickHouse JDBC)",
+            "1.0.0 (Spring Boot 3.3.4 + PostgreSQL)",
             chStatus,
             deStatus,
             chOnline,

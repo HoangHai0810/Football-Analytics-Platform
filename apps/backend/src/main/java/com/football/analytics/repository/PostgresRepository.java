@@ -1,6 +1,7 @@
 package com.football.analytics.repository;
 
 import com.football.analytics.model.*;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,13 +40,42 @@ public class PostgresRepository {
         Properties props = new Properties();
         props.setProperty("user", user);
         props.setProperty("password", password != null ? password : "");
-        props.setProperty("connectTimeout", "8");
-        props.setProperty("socketTimeout", "10");
+        props.setProperty("connectTimeout", "10");
+        props.setProperty("socketTimeout", "30");
         if (ssl) {
             props.setProperty("ssl", "true");
             props.setProperty("sslmode", "require");
         }
         return DriverManager.getConnection(url, props);
+    }
+
+    @PostConstruct
+    public void ensureSchema() {
+        String[] ddl = {
+            "ALTER TABLE dim_player ADD COLUMN IF NOT EXISTS jersey_number INTEGER DEFAULT 0",
+            "ALTER TABLE dim_player ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''",
+            "ALTER TABLE dim_player ADD COLUMN IF NOT EXISTS team_id BIGINT DEFAULT 0",
+            "ALTER TABLE dim_player ALTER COLUMN preferred_foot DROP NOT NULL",
+            "ALTER TABLE dim_player ALTER COLUMN preferred_foot SET DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS idx_dim_player_name ON dim_player (lower(name))",
+            "CREATE INDEX IF NOT EXISTS idx_dim_player_team ON dim_player (team_id)",
+            // Cleanup invented / mis-mapped presentation fields
+            "UPDATE dim_team SET stadium = '', updated_at = NOW() WHERE stadium ILIKE 'Stadium of %' OR lower(stadium) = 'stadium'",
+            "UPDATE dim_team t SET logo_url = '', updated_at = NOW() WHERE t.logo_url LIKE 'https://crests.football-data.org/%' AND EXISTS (SELECT 1 FROM dim_competition c WHERE c.name = t.country)",
+            "UPDATE dim_player SET avatar_url = '' WHERE avatar_url LIKE '%ui-avatars.com%' OR avatar_url LIKE '%crests.football-data.org%'"
+        };
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            for (String sql : ddl) {
+                try {
+                    stmt.execute(sql);
+                } catch (SQLException e) {
+                    log.warn("Schema ensure skipped [{}]: {}", sql, e.getMessage());
+                }
+            }
+            log.info("PostgreSQL schema ensure completed for dim_player");
+        } catch (Exception e) {
+            log.warn("Could not ensure schema on startup (will retry on query): {}", e.getMessage());
+        }
     }
 
 
@@ -145,16 +175,7 @@ public class PostgresRepository {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
-                String name = rs.getString("name");
-                String shortName = name.replace(" FC", "").replace(" CF", "");
-                list.add(new Team(
-                    rs.getLong("team_id"),
-                    name,
-                    shortName,
-                    rs.getString("country"),
-                    rs.getString("stadium"),
-                    rs.getString("logo_url")
-                ));
+                list.add(mapTeam(rs));
             }
         } catch (Exception e) {
             log.error("Failed to fetch teams: {}", e.getMessage());
@@ -168,16 +189,7 @@ public class PostgresRepository {
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             if (rs.next()) {
-                String name = rs.getString("name");
-                String shortName = name.replace(" FC", "").replace(" CF", "");
-                return Optional.of(new Team(
-                    rs.getLong("team_id"),
-                    name,
-                    shortName,
-                    rs.getString("country"),
-                    rs.getString("stadium"),
-                    rs.getString("logo_url")
-                ));
+                return Optional.of(mapTeam(rs));
             }
         } catch (Exception e) {
             log.error("Failed to fetch team {}: {}", id, e.getMessage());
@@ -185,184 +197,368 @@ public class PostgresRepository {
         return Optional.empty();
     }
 
+    private Team mapTeam(ResultSet rs) throws SQLException {
+        String name = rs.getString("name");
+        String shortName = name != null ? name.replace(" FC", "").replace(" CF", "") : "";
+        String stadium = sanitizeStadium(rs.getString("stadium"));
+        String logo = sanitizeLogoUrl(rs.getString("logo_url"));
+        String country = rs.getString("country");
+        // Competition name wrongly stored as country — blank it for honesty
+        if (country != null && (country.contains("League") || country.contains("Liga")
+                || country.contains("Serie") || country.contains("Bundesliga")
+                || country.contains("Championship") || country.contains("Cup"))) {
+            country = "";
+        }
+        return new Team(
+            rs.getLong("team_id"),
+            name,
+            shortName,
+            country != null ? country : "",
+            stadium,
+            logo
+        );
+    }
+
+    private String sanitizeStadium(String stadium) {
+        if (stadium == null || stadium.isBlank()) return "";
+        if (stadium.equalsIgnoreCase("Stadium") || stadium.startsWith("Stadium of ")) return "";
+        return stadium;
+    }
+
+    private String sanitizeLogoUrl(String logo) {
+        if (logo == null || logo.isBlank()) return "";
+        // ui-avatars is not a real crest
+        if (logo.contains("ui-avatars.com")) return "";
+        return logo;
+    }
+
     public List<Player> getAllPlayers(String query, String position) {
-        List<Player> list = new ArrayList<>();
-        StringBuilder sql = new StringBuilder();
-        sql.append("SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, ")
-           .append("coalesce(p.jersey_number, 10) as jersey_number, ")
-           .append("coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, ")
-           .append("coalesce(nullif(p.avatar_url, ''), 'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true') as avatar_url ")
-           .append("FROM dim_player p ")
-           .append("LEFT JOIN (SELECT player_id, max(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id ")
-           .append("LEFT JOIN dim_team t ON fpm.team_id = t.team_id WHERE 1=1 ");
+        List<Object> params = new ArrayList<>();
+        String where = buildPlayerWhere(query, position, params, "p");
 
-        if (query != null && !query.isBlank()) {
-            String sanitized = query.replace("'", "''").trim().toLowerCase();
-            sql.append(" AND (lower(p.name) LIKE '%").append(sanitized).append("%' OR lower(coalesce(t.name, '')) LIKE '%").append(sanitized).append("%') ");
-        }
-        if (position != null && !position.isBlank()) {
-            String sanitizedPos = position.replace("'", "''").trim().toUpperCase();
-            sql.append(" AND upper(p.position) = '").append(sanitizedPos).append("' ");
-        }
-        sql.append("ORDER BY p.player_id LIMIT 100");
+        // 1) Full join (team from dim_player.team_id or latest fact_player_match)
+        String fullSql =
+            "SELECT p.player_id, p.name, p.date_of_birth, "
+                + "coalesce(p.nationality, '') as nationality, "
+                + "coalesce(p.position, '') as position, "
+                + "coalesce(p.preferred_foot, '') as preferred_foot, "
+                + "coalesce(p.jersey_number, 0) as jersey_number, "
+                + "coalesce(nullif(p.avatar_url, ''), '') as avatar_url, "
+                + "coalesce(nullif(p.team_id, 0), fpm.team_id, 0) as team_id, "
+                + "coalesce(t.name, '') as team_name "
+                + "FROM dim_player p "
+                + "LEFT JOIN LATERAL ("
+                + "  SELECT team_id FROM fact_player_match "
+                + "  WHERE player_id = p.player_id AND team_id > 0 "
+                + "  ORDER BY match_id DESC LIMIT 1"
+                + ") fpm ON true "
+                + "LEFT JOIN dim_team t ON t.team_id = coalesce(nullif(p.team_id, 0), fpm.team_id) "
+                + where
+                + " ORDER BY p.name ASC LIMIT 200";
 
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql.toString())) {
-            while (rs.next()) {
-                java.sql.Date dobDate = rs.getDate("date_of_birth");
-                LocalDate dob = dobDate != null ? dobDate.toLocalDate() : LocalDate.of(1998, 1, 1);
-                list.add(new Player(
-                    rs.getLong("player_id"),
-                    rs.getLong("team_id"),
-                    rs.getString("team_name"),
-                    rs.getString("name"),
-                    dob,
-                    rs.getString("nationality"),
-                    rs.getString("position"),
-                    rs.getString("preferred_foot"),
-                    rs.getInt("jersey_number"),
-                    rs.getString("avatar_url")
-                ));
+        try {
+            List<Player> list = executePlayerQuery(fullSql, params);
+            if (!list.isEmpty()) {
+                log.info("getAllPlayers returned {} row(s) via full join", list.size());
+                return list;
             }
         } catch (Exception e) {
-            log.error("Failed to fetch players: {}", e.getMessage());
+            log.error("Full players query failed: {}", e.getMessage(), e);
+        }
+
+        // 2) dim_player + team_id only (no LATERAL / fact_player_match)
+        params = new ArrayList<>();
+        where = buildPlayerWhere(query, position, params, "p");
+        String teamSql =
+            "SELECT p.player_id, p.name, p.date_of_birth, "
+                + "coalesce(p.nationality, '') as nationality, "
+                + "coalesce(p.position, '') as position, "
+                + "coalesce(p.preferred_foot, '') as preferred_foot, "
+                + "coalesce(p.jersey_number, 0) as jersey_number, "
+                + "coalesce(nullif(p.avatar_url, ''), '') as avatar_url, "
+                + "coalesce(p.team_id, 0) as team_id, "
+                + "coalesce(t.name, '') as team_name "
+                + "FROM dim_player p "
+                + "LEFT JOIN dim_team t ON t.team_id = nullif(p.team_id, 0) "
+                + where
+                + " ORDER BY p.name ASC LIMIT 200";
+        try {
+            List<Player> list = executePlayerQuery(teamSql, params);
+            if (!list.isEmpty()) {
+                log.info("getAllPlayers returned {} row(s) via team join", list.size());
+                return list;
+            }
+        } catch (Exception e) {
+            log.error("Team-join players query failed: {}", e.getMessage(), e);
+        }
+
+        // 3) Absolute minimal — must work if dim_player has rows (entity_counts.players > 0)
+        params = new ArrayList<>();
+        where = buildPlayerWhere(query, position, params, null);
+        String minimal =
+            "SELECT player_id, name, date_of_birth, "
+                + "coalesce(nationality,'') as nationality, "
+                + "coalesce(position,'') as position, "
+                + "coalesce(preferred_foot,'') as preferred_foot, "
+                + "0 as jersey_number, '' as avatar_url, 0 as team_id, '' as team_name "
+                + "FROM dim_player "
+                + where
+                + " ORDER BY name ASC LIMIT 200";
+        try {
+            List<Player> list = executePlayerQuery(minimal, params);
+            log.info("getAllPlayers minimal returned {} row(s)", list.size());
+            return list;
+        } catch (Exception e) {
+            log.error("Minimal players query failed: {}", e.getMessage(), e);
+            return Collections.emptyList();
+        }
+    }
+
+    private String buildPlayerWhere(String query, String position, List<Object> params, String alias) {
+        String prefix = (alias == null || alias.isBlank()) ? "" : alias + ".";
+        StringBuilder where = new StringBuilder(" WHERE 1=1 ");
+        if (query != null && !query.isBlank()) {
+            String q = "%" + query.trim().toLowerCase() + "%";
+            if (alias != null) {
+                where.append(" AND (lower(").append(prefix).append("name) LIKE ? OR lower(coalesce(t.name, '')) LIKE ?) ");
+                params.add(q);
+                params.add(q);
+            } else {
+                where.append(" AND lower(name) LIKE ? ");
+                params.add(q);
+            }
+        }
+        if (position != null && !position.isBlank() && !"ALL".equalsIgnoreCase(position)) {
+            where.append(" AND upper(").append(prefix).append("position) = ? ");
+            params.add(position.trim().toUpperCase());
+        }
+        return where.toString();
+    }
+
+    private List<Player> executePlayerQuery(String sql, List<Object> params) throws SQLException {
+        List<Player> list = new ArrayList<>();
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    try {
+                        list.add(mapPlayer(rs));
+                    } catch (Exception rowEx) {
+                        log.warn("Skipping corrupt player row: {}", rowEx.getMessage());
+                    }
+                }
+            }
         }
         return list;
     }
 
+    private Player mapPlayer(ResultSet rs) throws SQLException {
+        LocalDate dob = null;
+        try {
+            java.sql.Date dobDate = rs.getDate("date_of_birth");
+            if (dobDate != null) dob = dobDate.toLocalDate();
+        } catch (SQLException ignored) {}
+
+        String name = rs.getString("name");
+        if (name == null || name.isBlank()) {
+            throw new SQLException("player name missing");
+        }
+
+        String avatar = "";
+        try {
+            avatar = rs.getString("avatar_url");
+        } catch (SQLException ignored) {}
+        // Never treat generated placeholders / team crests as player photos
+        if (avatar != null && (avatar.contains("ui-avatars.com") || avatar.contains("crests.football-data.org"))) {
+            avatar = "";
+        }
+
+        long teamId = 0L;
+        try { teamId = rs.getLong("team_id"); } catch (SQLException ignored) {}
+        String teamName = "";
+        try { teamName = rs.getString("team_name"); } catch (SQLException ignored) {}
+        int jersey = 0;
+        try { jersey = rs.getInt("jersey_number"); } catch (SQLException ignored) {}
+
+        String nationality = "";
+        try { nationality = rs.getString("nationality"); } catch (SQLException ignored) {}
+        String position = "";
+        try { position = rs.getString("position"); } catch (SQLException ignored) {}
+        String foot = "";
+        try { foot = rs.getString("preferred_foot"); } catch (SQLException ignored) {}
+        if (foot == null) foot = "";
+
+        return new Player(
+            rs.getLong("player_id"),
+            teamId,
+            teamName != null ? teamName : "",
+            name.trim(),
+            dob,
+            nationality != null ? nationality : "",
+            position != null ? position : "",
+            foot,
+            jersey,
+            avatar != null ? avatar : ""
+        );
+    }
+
     public Optional<Player> getPlayer(Long id) {
-        String sql = "SELECT p.player_id AS player_id, p.name AS name, p.date_of_birth AS date_of_birth, p.nationality AS nationality, p.position AS position, p.preferred_foot AS preferred_foot, " +
-                     "coalesce(p.jersey_number, 10) as jersey_number, " +
-                     "coalesce(t.team_id, 0) as team_id, coalesce(t.name, 'Club') as team_name, " +
-                     "coalesce(nullif(p.avatar_url, ''), 'https://ui-avatars.com/api/?name=' || replace(p.name, ' ', '+') || '&background=0f172a&color=38bdf8&bold=true') as avatar_url " +
-                     "FROM dim_player p " +
-                     "LEFT JOIN (SELECT player_id, max(team_id) as team_id FROM fact_player_match GROUP BY player_id) fpm ON p.player_id = fpm.player_id " +
-                     "LEFT JOIN dim_team t ON fpm.team_id = t.team_id " +
-                     "WHERE p.player_id = " + id;
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                java.sql.Date dobDate = rs.getDate("date_of_birth");
-                LocalDate dob = dobDate != null ? dobDate.toLocalDate() : LocalDate.of(1998, 1, 1);
-                return Optional.of(new Player(
-                    rs.getLong("player_id"),
-                    rs.getLong("team_id"),
-                    rs.getString("team_name"),
-                    rs.getString("name"),
-                    dob,
-                    rs.getString("nationality"),
-                    rs.getString("position"),
-                    rs.getString("preferred_foot"),
-                    rs.getInt("jersey_number"),
-                    rs.getString("avatar_url")
-                ));
-            }
+        String fullSql =
+            "SELECT p.player_id, p.name, p.date_of_birth, "
+                + "coalesce(p.nationality, '') as nationality, "
+                + "coalesce(p.position, '') as position, "
+                + "coalesce(p.preferred_foot, '') as preferred_foot, "
+                + "coalesce(p.jersey_number, 0) as jersey_number, "
+                + "coalesce(nullif(p.avatar_url, ''), '') as avatar_url, "
+                + "coalesce(nullif(p.team_id, 0), fpm.team_id, 0) as team_id, "
+                + "coalesce(t.name, '') as team_name "
+                + "FROM dim_player p "
+                + "LEFT JOIN LATERAL ("
+                + "  SELECT team_id FROM fact_player_match "
+                + "  WHERE player_id = p.player_id AND team_id > 0 "
+                + "  ORDER BY match_id DESC LIMIT 1"
+                + ") fpm ON true "
+                + "LEFT JOIN dim_team t ON t.team_id = coalesce(nullif(p.team_id, 0), fpm.team_id) "
+                + "WHERE p.player_id = ?";
+        try {
+            List<Player> list = executePlayerQuery(fullSql, List.of(id));
+            if (!list.isEmpty()) return Optional.of(list.get(0));
         } catch (Exception e) {
-            log.error("Failed to fetch player {}: {}", id, e.getMessage());
+            log.error("getPlayer full query {} failed: {}", id, e.getMessage());
+        }
+
+        String minimal =
+            "SELECT player_id, name, date_of_birth, coalesce(nationality,'') as nationality, "
+                + "coalesce(position,'') as position, coalesce(preferred_foot,'') as preferred_foot, "
+                + "0 as jersey_number, '' as avatar_url, 0 as team_id, '' as team_name "
+                + "FROM dim_player WHERE player_id = ?";
+        try {
+            List<Player> list = executePlayerQuery(minimal, List.of(id));
+            if (!list.isEmpty()) return Optional.of(list.get(0));
+        } catch (Exception e) {
+            log.error("getPlayer {} failed: {}", id, e.getMessage(), e);
         }
         return Optional.empty();
     }
 
     public List<Match> getAllMatches(Long competitionId, Long seasonId, String status) {
+        return getAllMatches(competitionId, seasonId, status, null, null, 100);
+    }
+
+    public List<Match> getAllMatches(Long competitionId, Long seasonId, String status,
+                                     LocalDateTime dateFrom, LocalDateTime dateTo, int limit) {
         List<Match> list = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
-        sql.append("SELECT m.match_id AS match_id, m.competition_id AS competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id AS season_id, ")
-           .append("m.home_team_id AS home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, ")
-           .append("m.away_team_id AS away_team_id, coalesce(awt.name, 'Away Team') as away_team_name, coalesce(awt.logo_url, '') as away_team_logo, ")
+        sql.append("SELECT m.match_id, m.competition_id, coalesce(c.name, '') as competition_name, m.season_id, ")
+           .append("m.home_team_id, coalesce(ht.name, '') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, ")
+           .append("m.away_team_id, coalesce(awt.name, '') as away_team_name, coalesce(awt.logo_url, '') as away_team_logo, ")
            .append("coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, ")
-           .append("coalesce(fm.home_xg, 0.0) as home_xg, coalesce(fm.away_xg, 0.0) as away_xg, ")
-           .append("m.match_date AS match_date, m.status AS status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance ")
+           .append("fm.home_xg as home_xg, fm.away_xg as away_xg, ")
+           .append("m.match_date, m.status, coalesce(nullif(ht.stadium, ''), '') as stadium, coalesce(fm.attendance, 0) as attendance ")
            .append("FROM dim_match m ")
            .append("LEFT JOIN fact_match fm ON m.match_id = fm.match_id ")
            .append("LEFT JOIN dim_competition c ON m.competition_id = c.competition_id ")
            .append("LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id ")
            .append("LEFT JOIN dim_team awt ON m.away_team_id = awt.team_id WHERE 1=1 ");
 
+        List<Object> params = new ArrayList<>();
         if (competitionId != null) {
-            sql.append(" AND m.competition_id = ").append(competitionId);
+            sql.append(" AND m.competition_id = ? ");
+            params.add(competitionId);
         }
         if (seasonId != null) {
-            sql.append(" AND m.season_id = ").append(seasonId);
+            sql.append(" AND m.season_id = ? ");
+            params.add(seasonId);
         }
         if (status != null && !status.isBlank()) {
-            sql.append(" AND upper(m.status) = '").append(status.replace("'", "''").trim().toUpperCase()).append("' ");
+            sql.append(" AND upper(m.status) = ? ");
+            params.add(status.trim().toUpperCase());
         }
-        sql.append(" ORDER BY m.match_date DESC LIMIT 50");
+        if (dateFrom != null) {
+            sql.append(" AND m.match_date >= ? ");
+            params.add(Timestamp.valueOf(dateFrom));
+        }
+        if (dateTo != null) {
+            sql.append(" AND m.match_date <= ? ");
+            params.add(Timestamp.valueOf(dateTo));
+        }
+        int safeLimit = Math.max(1, Math.min(limit > 0 ? limit : 100, 200));
+        sql.append(" ORDER BY m.match_date DESC LIMIT ").append(safeLimit);
 
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql.toString())) {
-            while (rs.next()) {
-                Timestamp ts = rs.getTimestamp("match_date");
-                LocalDateTime matchDate = ts != null ? ts.toLocalDateTime() : LocalDateTime.now();
-                list.add(new Match(
-                    rs.getLong("match_id"),
-                    rs.getLong("competition_id"),
-                    rs.getString("competition_name"),
-                    rs.getLong("season_id"),
-                    rs.getLong("home_team_id"),
-                    rs.getString("home_team_name"),
-                    rs.getString("home_team_logo"),
-                    rs.getLong("away_team_id"),
-                    rs.getString("away_team_name"),
-                    rs.getString("away_team_logo"),
-                    rs.getInt("home_score"),
-                    rs.getInt("away_score"),
-                    rs.getDouble("home_xg"),
-                    rs.getDouble("away_xg"),
-                    matchDate,
-                    rs.getString("status"),
-                    rs.getString("stadium"),
-                    rs.getLong("attendance")
-                ));
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapMatch(rs));
+                }
             }
         } catch (Exception e) {
-            log.error("Failed to fetch matches: {}", e.getMessage());
+            log.error("Failed to fetch matches: {}", e.getMessage(), e);
         }
         return list;
     }
 
+    private Match mapMatch(ResultSet rs) throws SQLException {
+        Timestamp ts = rs.getTimestamp("match_date");
+        LocalDateTime matchDate = ts != null ? ts.toLocalDateTime() : null;
+        Double homeXg = rs.getObject("home_xg") != null ? rs.getDouble("home_xg") : null;
+        Double awayXg = rs.getObject("away_xg") != null ? rs.getDouble("away_xg") : null;
+        // Treat zero-only invented placeholders as absent when both are exactly the sync-formula pattern isn't detectable;
+        // UI already hides xG when both are null/0.
+        String stadium = sanitizeStadium(rs.getString("stadium"));
+        // Treat placeholder 0/0 xG as absent when both sides are exactly 0 (sync default)
+        if (homeXg != null && awayXg != null && homeXg == 0.0 && awayXg == 0.0) {
+            homeXg = null;
+            awayXg = null;
+        }
+        return new Match(
+            rs.getLong("match_id"),
+            rs.getLong("competition_id"),
+            rs.getString("competition_name"),
+            rs.getLong("season_id"),
+            rs.getLong("home_team_id"),
+            rs.getString("home_team_name"),
+            sanitizeLogoUrl(rs.getString("home_team_logo")),
+            rs.getLong("away_team_id"),
+            rs.getString("away_team_name"),
+            sanitizeLogoUrl(rs.getString("away_team_logo")),
+            rs.getInt("home_score"),
+            rs.getInt("away_score"),
+            homeXg,
+            awayXg,
+            matchDate,
+            rs.getString("status"),
+            stadium,
+            rs.getLong("attendance")
+        );
+    }
+
     public Optional<Match> getMatch(Long id) {
-        String sql = "SELECT m.match_id AS match_id, m.competition_id AS competition_id, coalesce(c.name, 'Competition') as competition_name, m.season_id AS season_id, " +
-                     "m.home_team_id AS home_team_id, coalesce(ht.name, 'Home Team') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, " +
-                     "m.away_team_id AS away_team_id, coalesce(awt.name, 'Away Team') as away_team_name, coalesce(awt.logo_url, '') as away_team_logo, " +
-                     "coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, " +
-                     "coalesce(fm.home_xg, 0.0) as home_xg, coalesce(fm.away_xg, 0.0) as away_xg, " +
-                     "m.match_date AS match_date, m.status AS status, coalesce(ht.stadium, 'Stadium') as stadium, coalesce(fm.attendance, 0) as attendance " +
-                     "FROM dim_match m " +
-                     "LEFT JOIN fact_match fm ON m.match_id = fm.match_id " +
-                     "LEFT JOIN dim_competition c ON m.competition_id = c.competition_id " +
-                     "LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id " +
-                     "LEFT JOIN dim_team awt ON m.away_team_id = awt.team_id " +
-                     "WHERE m.match_id = " + id;
+        String sql = "SELECT m.match_id, m.competition_id, coalesce(c.name, '') as competition_name, m.season_id, "
+                + "m.home_team_id, coalesce(ht.name, '') as home_team_name, coalesce(ht.logo_url, '') as home_team_logo, "
+                + "m.away_team_id, coalesce(awt.name, '') as away_team_name, coalesce(awt.logo_url, '') as away_team_logo, "
+                + "coalesce(fm.home_score, 0) as home_score, coalesce(fm.away_score, 0) as away_score, "
+                + "fm.home_xg as home_xg, fm.away_xg as away_xg, "
+                + "m.match_date, m.status, coalesce(nullif(ht.stadium, ''), '') as stadium, coalesce(fm.attendance, 0) as attendance "
+                + "FROM dim_match m "
+                + "LEFT JOIN fact_match fm ON m.match_id = fm.match_id "
+                + "LEFT JOIN dim_competition c ON m.competition_id = c.competition_id "
+                + "LEFT JOIN dim_team ht ON m.home_team_id = ht.team_id "
+                + "LEFT JOIN dim_team awt ON m.away_team_id = awt.team_id "
+                + "WHERE m.match_id = ?";
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                Timestamp ts = rs.getTimestamp("match_date");
-                LocalDateTime matchDate = ts != null ? ts.toLocalDateTime() : LocalDateTime.now();
-                return Optional.of(new Match(
-                    rs.getLong("match_id"),
-                    rs.getLong("competition_id"),
-                    rs.getString("competition_name"),
-                    rs.getLong("season_id"),
-                    rs.getLong("home_team_id"),
-                    rs.getString("home_team_name"),
-                    rs.getString("home_team_logo"),
-                    rs.getLong("away_team_id"),
-                    rs.getString("away_team_name"),
-                    rs.getString("away_team_logo"),
-                    rs.getInt("home_score"),
-                    rs.getInt("away_score"),
-                    rs.getDouble("home_xg"),
-                    rs.getDouble("away_xg"),
-                    matchDate,
-                    rs.getString("status"),
-                    rs.getString("stadium"),
-                    rs.getLong("attendance")
-                ));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapMatch(rs));
+                }
             }
         } catch (Exception e) {
             log.error("Failed to fetch match {}: {}", id, e.getMessage());
@@ -400,8 +596,8 @@ public class PostgresRepository {
             if (rs.next()) {
                 PlayerSeasonStats stats = new PlayerSeasonStats();
                 stats.setPlayerId(rs.getLong("player_id"));
-                stats.setSeasonId(seasonId != null ? seasonId : 2024L);
-                stats.setSeasonName("2024/2025");
+                stats.setSeasonId(seasonId);
+                stats.setSeasonName(seasonId != null ? ("Season " + seasonId) : "All available");
                 int matches = rs.getInt("total_matches");
                 int minutes = rs.getInt("total_minutes");
                 int goals = rs.getInt("total_goals");
@@ -439,10 +635,11 @@ public class PostgresRepository {
                     stats.setXaPer90(0.0);
                     stats.setShotsPer90(0.0);
                 }
-                stats.setPassCompletionRate(81.5);
-                stats.setDuelWinRate(52.0);
+                // Do NOT invent pass/duel rates — leave null when source data is unavailable
+                stats.setPassCompletionRate(null);
+                stats.setDuelWinRate(null);
 
-                calculateRadarRatings(stats);
+                applyDisplayRadarFromRealPer90(stats);
                 return Optional.of(stats);
             }
         } catch (Exception e) {
@@ -480,10 +677,10 @@ public class PostgresRepository {
                 stats.setXgPer90(rs.getDouble("xg_per_90"));
                 stats.setXaPer90(rs.getDouble("xa_per_90"));
                 stats.setShotsPer90(rs.getDouble("shots_per_90"));
-                stats.setPassCompletionRate(82.5);
-                stats.setDuelWinRate(54.0);
+                stats.setPassCompletionRate(null);
+                stats.setDuelWinRate(null);
 
-                calculateRadarRatings(stats);
+                applyDisplayRadarFromRealPer90(stats);
                 return Optional.of(stats);
             }
         } catch (Exception e) {
@@ -492,57 +689,66 @@ public class PostgresRepository {
         return Optional.empty();
     }
 
-    private void calculateRadarRatings(PlayerSeasonStats stats) {
+    /**
+     * Display-only radar axes scaled from real per-90 / volume stats.
+     * Caps are explicit visualization scales (not invented performance claims).
+     * Missing inputs → axis score 0 (UI should treat sparse radars carefully).
+     */
+    private void applyDisplayRadarFromRealPer90(PlayerSeasonStats stats) {
         double g90 = stats.getGoalsPer90() != null ? stats.getGoalsPer90() : 0.0;
         double a90 = stats.getAssistsPer90() != null ? stats.getAssistsPer90() : 0.0;
         double xg90 = stats.getXgPer90() != null ? stats.getXgPer90() : 0.0;
+        double shots90 = stats.getShotsPer90() != null ? stats.getShotsPer90() : 0.0;
         int kp = stats.getKeyPasses() != null ? stats.getKeyPasses() : 0;
         int tkl = stats.getTackles() != null ? stats.getTackles() : 0;
-        int p = stats.getPressures() != null ? stats.getPressures() : 0;
-        int passes = stats.getPasses() != null ? stats.getPasses() : 0;
+        int pressures = stats.getPressures() != null ? stats.getPressures() : 0;
         int duels = stats.getDuels() != null ? stats.getDuels() : 0;
+        int minutes = stats.getMinutes() != null ? stats.getMinutes() : 0;
 
-        stats.setFinishingRating(Math.min(99, Math.max(50, (int) (g90 * 65.0 + xg90 * 30.0 + 40))));
-        stats.setCreationRating(Math.min(99, Math.max(50, (int) (a90 * 60.0 + kp * 0.8 + 45))));
-        stats.setProgressionRating(Math.min(99, Math.max(50, (int) (passes * 0.04 + 50))));
-        stats.setPressingRating(Math.min(99, Math.max(50, (int) (p * 0.25 + 45))));
-        stats.setDefendingRating(Math.min(99, Math.max(40, (int) (tkl * 1.5 + 40))));
-        stats.setAerialRating(Math.min(99, Math.max(45, (int) (duels * 0.2 + 50))));
+        stats.setFinishingRating(scale01(Math.max(g90 / 1.0, xg90 / 1.0)));
+        stats.setCreationRating(scale01(Math.max(a90 / 0.8, (minutes > 0 ? (kp * 90.0 / minutes) : 0) / 3.0)));
+        stats.setProgressionRating(scale01(shots90 / 4.0));
+        stats.setPressingRating(scale01((minutes > 0 ? (pressures * 90.0 / minutes) : 0) / 25.0));
+        stats.setDefendingRating(scale01((minutes > 0 ? (tkl * 90.0 / minutes) : 0) / 4.0));
+        stats.setAerialRating(scale01((minutes > 0 ? (duels * 90.0 / minutes) : 0) / 15.0));
+    }
+
+    private int scale01(double ratio) {
+        if (Double.isNaN(ratio) || ratio <= 0) return 0;
+        return (int) Math.round(Math.min(100.0, ratio * 100.0));
     }
 
     public List<ShotEvent> getPlayerShots(Long playerId, Long seasonId) {
         List<ShotEvent> list = new ArrayList<>();
-        String sql = "SELECT cast(fe.event_id as text) as event_id, fe.match_id, fe.player_id, coalesce(dp.name, 'Player') as player_name, " +
+        // fact_event has no xG column — do not invent geometric xG / body part / situation
+        String sql = "SELECT cast(fe.event_id as text) as event_id, fe.match_id, fe.player_id, coalesce(dp.name, '') as player_name, " +
                      "fe.team_id, fe.minute, fe.second, fe.x, fe.y, fe.outcome " +
                      "FROM fact_event fe " +
                      "LEFT JOIN dim_player dp ON fe.player_id = dp.player_id " +
-                     "WHERE fe.player_id = " + playerId + " AND (fe.event_type IN ('SHOT', 'GOAL') OR fe.outcome = 'GOAL') " +
-                     "ORDER BY fe.match_id, fe.minute, fe.second LIMIT 20";
+                     "WHERE fe.player_id = ? AND (fe.event_type IN ('SHOT', 'GOAL') OR fe.outcome = 'GOAL') " +
+                     "ORDER BY fe.match_id, fe.minute, fe.second LIMIT 50";
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                double x = rs.getDouble("x");
-                double y = rs.getDouble("y");
-                // Distance to goal mouth (120, 40)
-                double dist = Math.sqrt(Math.pow(120.0 - x, 2) + Math.pow(40.0 - y, 2));
-                double xg = Math.round(Math.max(0.04, Math.min(0.85, 1.0 / (1.0 + dist * 0.15))) * 100.0) / 100.0;
-                String outcome = rs.getString("outcome");
-                list.add(new ShotEvent(
-                    rs.getString("event_id"),
-                    rs.getLong("match_id"),
-                    rs.getLong("player_id"),
-                    rs.getString("player_name"),
-                    rs.getLong("team_id"),
-                    rs.getInt("minute"),
-                    rs.getInt("second"),
-                    x,
-                    y,
-                    xg,
-                    outcome != null && !outcome.isBlank() ? outcome : "SHOT",
-                    "RIGHT_FOOT",
-                    "OPEN_PLAY"
-                ));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, playerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String outcome = rs.getString("outcome");
+                    list.add(new ShotEvent(
+                        rs.getString("event_id"),
+                        rs.getLong("match_id"),
+                        rs.getLong("player_id"),
+                        rs.getString("player_name"),
+                        rs.getLong("team_id"),
+                        rs.getInt("minute"),
+                        rs.getInt("second"),
+                        rs.getDouble("x"),
+                        rs.getDouble("y"),
+                        null, // xG unavailable in event store
+                        outcome != null && !outcome.isBlank() ? outcome : "SHOT",
+                        null,
+                        null
+                    ));
+                }
             }
         } catch (Exception e) {
             log.error("Failed to fetch player shots for {}: {}", playerId, e.getMessage());

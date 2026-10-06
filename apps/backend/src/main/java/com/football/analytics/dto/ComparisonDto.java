@@ -34,8 +34,13 @@ public class ComparisonDto {
 
     public static class MetricComparison {
         private String metric;
+
+        @JsonProperty("player1Value")
         private Double player1Value;
+
+        @JsonProperty("player2Value")
         private Double player2Value;
+
         private String leader;
         private Double difference;
 

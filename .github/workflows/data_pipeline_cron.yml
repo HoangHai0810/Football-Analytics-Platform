@@ -12,8 +12,8 @@ on:
         default: 'rolling_sync'
         type: choice
         options:
-          - 'rolling_sync (Cửa sổ trượt 48h - Trận đấu mới nhất, siêu nhanh)'
-          - 'full_backfill (Nạp toàn bộ lịch sử StatsBomb 2015-nay)'
+          - 'rolling_sync (Cửa sổ trượt ~21 ngày — trận gần đây + sắp đá, cần FOOTBALL_DATA_API_KEY)'
+          - 'full_backfill (Nạp lịch sử StatsBomb open data)'
 
 jobs:
   ingest-and-transform:
@@ -100,10 +100,17 @@ jobs:
           export PG_PORT="$(echo -n "$PG_PORT" | tr -d '\r\n ')"
 
           if [[ "$INGESTION_MODE" == *"full_backfill"* ]]; then
-            echo "🌍 [MODE: FULL BACKFILL] Ingesting all StatsBomb historical seasons (2015-present)..."
+            echo "🌍 [MODE: FULL BACKFILL] Ingesting StatsBomb historical seasons..."
             python -u data-platform/ingestion/seed_data.py
           else
-            echo "⚡ [MODE: ROLLING SYNC] Synchronizing recent 48h live & finished matches..."
+            echo "⚡ [MODE: ROLLING SYNC] Window: last ${SYNC_DAYS_BACK:-21}d + next ${SYNC_DAYS_FORWARD:-7}d via football-data.org"
+            if [ -z "$(echo -n "$FOOTBALL_DATA_API_KEY" | tr -d '\r\n ')" ]; then
+              echo "❌ FOOTBALL_DATA_API_KEY secret is missing/empty."
+              echo "   Rolling sync cannot fetch recent fixtures without it."
+              echo "   1) Register free: https://www.football-data.org/client/register"
+              echo "   2) Repo → Settings → Secrets → Actions → FOOTBALL_DATA_API_KEY"
+              exit 1
+            fi
             python -u data-platform/ingestion/sync_recent_matches.py
           fi
 

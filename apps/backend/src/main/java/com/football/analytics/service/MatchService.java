@@ -7,6 +7,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Collections;
 import java.util.List;
 
@@ -14,31 +17,36 @@ import java.util.List;
 public class MatchService {
     private static final Logger log = LoggerFactory.getLogger(MatchService.class);
 
-    private final PostgresRepository PostgresRepository;
+    private final PostgresRepository postgresRepository;
 
-    public MatchService(PostgresRepository PostgresRepository) {
-        this.PostgresRepository = PostgresRepository;
+    public MatchService(PostgresRepository postgresRepository) {
+        this.postgresRepository = postgresRepository;
     }
 
-    public List<Match> getMatches(Long competitionId, Long seasonId, String status) {
+    public List<Match> getMatches(Long competitionId, Long seasonId, String status,
+                                  LocalDate dateFrom, LocalDate dateTo, Integer limit) {
         try {
-            List<Match> matches = PostgresRepository.getAllMatches(competitionId, seasonId, status);
+            LocalDateTime fromTs = dateFrom != null ? dateFrom.atStartOfDay() : null;
+            LocalDateTime toTs = dateTo != null ? dateTo.atTime(LocalTime.MAX) : null;
+            int lim = limit != null ? limit : 100;
+            List<Match> matches = postgresRepository.getAllMatches(
+                competitionId, seasonId, status, fromTs, toTs, lim);
             return matches != null ? matches : Collections.emptyList();
         } catch (Exception e) {
-            log.error("ClickHouse matches query failed: {}", e.getMessage());
+            log.error("Matches query failed: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
 
     public Match getMatchById(Long id) {
         try {
-            return PostgresRepository.getMatch(id)
+            return postgresRepository.getMatch(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                     "MATCH_NOT_FOUND", "Match with id " + id + " not found."));
         } catch (ResourceNotFoundException e) {
             throw e;
         } catch (Exception e) {
-            log.error("ClickHouse getMatch query failed: {}", e.getMessage());
+            log.error("getMatch query failed: {}", e.getMessage());
             throw new ResourceNotFoundException(
                 "MATCH_NOT_FOUND", "Match with id " + id + " not found.");
         }

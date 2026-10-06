@@ -4,32 +4,51 @@ import RadarChart from './RadarChart';
 
 export default function PlayerComparison({ initialPlayerId }) {
   const [players, setPlayers] = useState([]);
-  const [player1Id, setPlayer1Id] = useState(initialPlayerId || 1024);
-  const [player2Id, setPlayer2Id] = useState(1088);
+  const [player1Id, setPlayer1Id] = useState(initialPlayerId || null);
+  const [player2Id, setPlayer2Id] = useState(null);
   const [comparisonData, setComparisonData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     async function loadPlayersList() {
       try {
         const res = await api.getPlayers();
-        setPlayers(res.data || []);
+        const list = res.data || [];
+        setPlayers(list);
+        if (list.length >= 2) {
+          const p1 = initialPlayerId && list.some((p) => p.player_id === initialPlayerId)
+            ? initialPlayerId
+            : list[0].player_id;
+          const p2 = list.find((p) => p.player_id !== p1)?.player_id || list[1].player_id;
+          setPlayer1Id(p1);
+          setPlayer2Id(p2);
+        } else if (list.length === 1) {
+          setPlayer1Id(list[0].player_id);
+        }
       } catch (err) {
         console.error(err);
+        setError('Không tải được danh sách cầu thủ để so sánh.');
       }
     }
     loadPlayersList();
-  }, []);
+  }, [initialPlayerId]);
 
   useEffect(() => {
     async function loadComparison() {
-      if (!player1Id || !player2Id) return;
+      if (!player1Id || !player2Id || player1Id === player2Id) {
+        setComparisonData(null);
+        return;
+      }
       setLoading(true);
+      setError(null);
       try {
         const res = await api.comparePlayers(player1Id, player2Id);
         setComparisonData(res.data);
       } catch (err) {
         console.error(err);
+        setError('Không so sánh được — thiếu thống kê cho một trong hai cầu thủ.');
+        setComparisonData(null);
       } finally {
         setLoading(false);
       }
@@ -47,79 +66,61 @@ export default function PlayerComparison({ initialPlayerId }) {
     <div>
       <div className="section-header">
         <div>
-          <h1 className="section-title">
-            <span>⚔️</span> Head-to-Head Player Comparison
-          </h1>
-          <p className="section-subtitle">
-            Direct analytical benchmarking across per-90 metrics, dual radar polygons, and delta gap calculations
-          </p>
+          <h1 className="section-title">So sánh cầu thủ</h1>
+          <p className="section-subtitle">Đối chiếu chỉ số thật theo mùa — không ước lượng</p>
         </div>
 
-        {/* Player Selectors */}
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: '#10b981', fontWeight: 600 }}>Player 1:</span>
+        <div className="compare-selectors">
+          <label>
+            Cầu thủ 1
             <select
-              value={player1Id}
+              value={player1Id || ''}
               onChange={(e) => setPlayer1Id(Number(e.target.value))}
-              style={{
-                background: 'rgba(15, 23, 42, 0.9)',
-                border: '1px solid rgba(16, 185, 129, 0.4)',
-                color: '#fff',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
-                outline: 'none',
-                fontFamily: 'var(--font-body)'
-              }}
+              className="compare-select compare-select-a"
             >
               {players.map((p) => (
                 <option key={p.player_id} value={p.player_id}>
-                  {p.name} ({p.team_name})
+                  {p.name}{p.team_name ? ` · ${p.team_name}` : ''}
                 </option>
               ))}
             </select>
-          </div>
+          </label>
 
-          <span style={{ color: 'var(--text-muted)', fontWeight: 800 }}>VS</span>
+          <span className="compare-vs">VS</span>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: '#06b6d4', fontWeight: 600 }}>Player 2:</span>
+          <label>
+            Cầu thủ 2
             <select
-              value={player2Id}
+              value={player2Id || ''}
               onChange={(e) => setPlayer2Id(Number(e.target.value))}
-              style={{
-                background: 'rgba(15, 23, 42, 0.9)',
-                border: '1px solid rgba(6, 182, 212, 0.4)',
-                color: '#fff',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
-                outline: 'none',
-                fontFamily: 'var(--font-body)'
-              }}
+              className="compare-select compare-select-b"
             >
               {players.map((p) => (
                 <option key={p.player_id} value={p.player_id}>
-                  {p.name} ({p.team_name})
+                  {p.name}{p.team_name ? ` · ${p.team_name}` : ''}
                 </option>
               ))}
             </select>
-          </div>
+          </label>
         </div>
       </div>
 
-      {loading || !comparisonData ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-secondary)' }}>
-          Computing comparative analytical models...
+      {players.length < 2 ? (
+        <div className="empty-state">
+          Cần ít nhất 2 cầu thủ trong hệ thống để so sánh. Đồng bộ dữ liệu rồi quay lại.
         </div>
+      ) : loading ? (
+        <div className="empty-state">Đang so sánh…</div>
+      ) : error ? (
+        <div className="empty-state" style={{ color: 'var(--crimson-danger)' }}>{error}</div>
+      ) : !comparisonData ? (
+        <div className="empty-state">Chọn hai cầu thủ khác nhau để bắt đầu.</div>
       ) : (
         <div className="comparison-layout">
-          {/* Left Column: Overlaid Dual Radar Chart */}
           <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <h3 style={{ fontSize: '18px', marginBottom: '8px', color: '#fff' }}>
-              Multi-Axis Radar Comparison
-            </h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '16px' }}>
-              Green: {p1?.name} &nbsp;|&nbsp; Cyan: {p2?.name}
+            <h3 className="card-heading">Radar đối đầu</h3>
+            <p className="card-sub">
+              Xanh lá: {p1?.name} · Xanh dương: {p2?.name}
             </p>
 
             <RadarChart
@@ -132,45 +133,39 @@ export default function PlayerComparison({ initialPlayerId }) {
               size={340}
             />
 
-            <div style={{ marginTop: '20px', width: '100%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                <div style={{ fontWeight: 700, color: '#34d399' }}>{p1?.name}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{p1?.team_name} • {p1?.position}</div>
-                <div style={{ marginTop: '6px', fontSize: '13px', fontWeight: 600 }}>
-                  {s1?.goals} Goals ({s1?.goals_per_90}/90)
+            <div className="compare-summary-grid">
+              <div className="compare-summary a">
+                <div className="compare-summary-name">{p1?.name}</div>
+                <div className="compare-summary-meta">{p1?.team_name} · {p1?.position || '—'}</div>
+                <div className="compare-summary-stat">
+                  {s1?.goals ?? '—'} bàn ({s1?.goals_per_90 ?? '—'}/90)
                 </div>
               </div>
-
-              <div style={{ background: 'rgba(6, 182, 212, 0.1)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-                <div style={{ fontWeight: 700, color: '#38bdf8' }}>{p2?.name}</div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{p2?.team_name} • {p2?.position}</div>
-                <div style={{ marginTop: '6px', fontSize: '13px', fontWeight: 600 }}>
-                  {s2?.goals} Goals ({s2?.goals_per_90}/90)
+              <div className="compare-summary b">
+                <div className="compare-summary-name">{p2?.name}</div>
+                <div className="compare-summary-meta">{p2?.team_name} · {p2?.position || '—'}</div>
+                <div className="compare-summary-stat">
+                  {s2?.goals ?? '—'} bàn ({s2?.goals_per_90 ?? '—'}/90)
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Right Column: Comparative Metric Delta Table */}
           <div className="card">
-            <h3 style={{ fontSize: '18px', marginBottom: '14px', color: '#fff' }}>
-              Head-to-Head Metric Breakdown
-            </h3>
-
+            <h3 className="card-heading">Bảng chỉ số</h3>
             <table className="comparison-table">
               <thead>
                 <tr>
-                  <th>Metric</th>
+                  <th>Chỉ số</th>
                   <th style={{ color: '#10b981' }}>{p1?.name}</th>
                   <th style={{ color: '#06b6d4' }}>{p2?.name}</th>
-                  <th>Leader / Delta</th>
+                  <th>Chênh lệch</th>
                 </tr>
               </thead>
               <tbody>
                 {Object.values(metrics).map((m) => {
                   const isP1Leader = m.leader === p1?.name;
                   const isP2Leader = m.leader === p2?.name;
-
                   return (
                     <tr key={m.metric}>
                       <td style={{ fontWeight: 600, color: '#e2e8f0' }}>{m.metric}</td>
@@ -181,7 +176,7 @@ export default function PlayerComparison({ initialPlayerId }) {
                         {m.player2Value}
                       </td>
                       <td className="leader-cell" style={{ color: isP1Leader ? '#34d399' : (isP2Leader ? '#38bdf8' : 'var(--text-muted)') }}>
-                        {m.leader === 'Tied' ? 'Tied' : `${m.leader} (+${m.difference})`}
+                        {m.leader === 'Tied' ? 'Hòa' : `${m.leader} (+${m.difference})`}
                       </td>
                     </tr>
                   );

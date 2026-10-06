@@ -10,15 +10,14 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 
 /**
- * AI Analyst â€” ClickHouse-only. Never invents stats.
- * If data is missing, returns an explicit unavailable response.
+ * AI Analyst — data-backed only. Never invents stats.
  */
 @Service
 public class AiAnalystService {
-    private final PostgresRepository PostgresRepository;
+    private final PostgresRepository postgresRepository;
 
-    public AiAnalystService(PostgresRepository PostgresRepository) {
-        this.PostgresRepository = PostgresRepository;
+    public AiAnalystService(PostgresRepository postgresRepository) {
+        this.postgresRepository = postgresRepository;
     }
 
     public AiAnalysisResponse analyze(AiAnalysisRequest request) {
@@ -30,7 +29,7 @@ public class AiAnalystService {
         }
 
         if (!query.isBlank()) {
-            List<Player> matches = PostgresRepository.getAllPlayers(extractSearchTerm(query), null);
+            List<Player> matches = postgresRepository.getAllPlayers(extractSearchTerm(query), null);
             if (matches != null && !matches.isEmpty()) {
                 Player player = matches.get(0);
                 return analyzePlayerById(player.getPlayerId(), query);
@@ -41,13 +40,13 @@ public class AiAnalystService {
     }
 
     private AiAnalysisResponse analyzePlayerById(Long playerId, String query) {
-        Optional<Player> playerOpt = PostgresRepository.getPlayer(playerId);
+        Optional<Player> playerOpt = postgresRepository.getPlayer(playerId);
         if (playerOpt.isEmpty()) {
             return unavailableResponse(query);
         }
 
         Player player = playerOpt.get();
-        Optional<PlayerSeasonStats> statsOpt = PostgresRepository.getPlayerStats(playerId, null);
+        Optional<PlayerSeasonStats> statsOpt = postgresRepository.getPlayerStats(playerId, null);
         if (statsOpt.isEmpty()) {
             return unavailableResponse(query);
         }
@@ -66,8 +65,6 @@ public class AiAnalystService {
         table.put("Goals/90", stats.getGoalsPer90());
         table.put("Assists/90", stats.getAssistsPer90());
         table.put("xG/90", stats.getXgPer90());
-        table.put("Finishing Rating", stats.getFinishingRating());
-        table.put("Creation Rating", stats.getCreationRating());
 
         List<String> facts = List.of(
             player.getName() + " (" + player.getTeamName() + "): "
@@ -79,26 +76,26 @@ public class AiAnalystService {
                 + ", xG=" + stats.getXgPer90() + "."
         );
 
-        String answer = "### PhĂ¢n tĂ­ch tá»« ClickHouse: " + player.getName() + "\n\n"
-            + "Dá»¯ liá»‡u láº¥y tá»« `mart_player_season_stats` / `fact_player_match` (khĂ´ng Æ°á»›c lÆ°á»£ng).\n\n"
-            + "- BĂ n tháº¯ng: **" + stats.getGoals() + "** (xG " + stats.getXg() + ")\n"
-            + "- Kiáº¿n táº¡o: **" + stats.getAssists() + "** (xA " + stats.getXa() + ")\n"
-            + "- PhĂºt thi Ä‘áº¥u: **" + stats.getMinutes() + "** qua **"
-            + stats.getMatchesPlayed() + "** tráº­n\n"
+        String answer = "### Phân tích: " + player.getName() + "\n\n"
+            + "Nguồn: `mart_player_season_stats` / `fact_player_match` (không ước lượng).\n\n"
+            + "- Bàn thắng: **" + stats.getGoals() + "** (xG " + stats.getXg() + ")\n"
+            + "- Kiến tạo: **" + stats.getAssists() + "** (xA " + stats.getXa() + ")\n"
+            + "- Phút thi đấu: **" + stats.getMinutes() + "** qua **"
+            + stats.getMatchesPlayed() + "** trận\n"
             + "- Goals/90: **" + stats.getGoalsPer90() + "**, Assists/90: **"
             + stats.getAssistsPer90() + "**";
 
         List<String> suggestions = List.of(
-            "Xem shot map cá»§a " + player.getName() + "?",
-            "So sĂ¡nh " + player.getName() + " vá»›i cáº§u thá»§ khĂ¡c trong cĂ¹ng mĂ¹a?"
+            "Xem shot map của " + player.getName() + "?",
+            "So sánh " + player.getName() + " với cầu thủ khác?"
         );
 
         return new AiAnalysisResponse(
-            "PLAYER_STATS_FROM_CLICKHOUSE",
+            "PLAYER_STATS",
             answer,
             facts,
             table,
-            "mart_player_season_stats / fact_player_match (ClickHouse)",
+            "mart_player_season_stats / fact_player_match",
             0.99,
             suggestions
         );
@@ -107,24 +104,23 @@ public class AiAnalystService {
     private AiAnalysisResponse unavailableResponse(String query) {
         String q = query == null || query.isBlank() ? "(empty)" : query;
         List<String> facts = List.of(
-            "KhĂ´ng cĂ³ sá»‘ liá»‡u ClickHouse khá»›p vá»›i truy váº¥n.",
-            "Há»‡ thá»‘ng khĂ´ng bá»‹a thá»‘ng kĂª khi dá»¯ liá»‡u thiáº¿u."
+            "Không có số liệu khớp với truy vấn.",
+            "Hệ thống không bịa thống kê khi dữ liệu thiếu."
         );
         Map<String, Object> table = new LinkedHashMap<>();
         table.put("query", q);
         table.put("status", "DATA_UNAVAILABLE");
 
-        String answer = "### Dá»¯ liá»‡u khĂ´ng kháº£ dá»¥ng\n\n"
-            + "KhĂ´ng tĂ¬m tháº¥y sá»‘ liá»‡u tháº­t trong ClickHouse cho: *\"" + q + "\"*.\n"
-            + "Vui lĂ²ng thá»­ tĂªn cáº§u thá»§ Ä‘Ă£ Ä‘Æ°á»£c ingest (vĂ­ dá»¥ tá»« La Liga StatsBomb open data), "
-            + "hoáº·c kiá»ƒm tra `/api/v1/system/status` Ä‘á»ƒ xĂ¡c nháº­n ClickHouse ONLINE.";
+        String answer = "### Dữ liệu không khả dụng\n\n"
+            + "Không tìm thấy số liệu thật cho: *\"" + q + "\"*.\n"
+            + "Thử tên cầu thủ đã được ingest, hoặc kiểm tra `/api/v1/system/status`.";
 
         return new AiAnalysisResponse(
             "DATA_UNAVAILABLE",
             answer,
             facts,
             table,
-            "ClickHouse",
+            "PostgreSQL",
             0.0,
             List.of("GET /api/v1/players", "GET /api/v1/matches", "GET /api/v1/system/status")
         );
@@ -132,14 +128,13 @@ public class AiAnalystService {
 
     private String extractSearchTerm(String query) {
         String cleaned = query.toLowerCase()
-            .replaceAll("(?i)\\b(phĂ¢n tĂ­ch|analyze|compare|so sĂ¡nh|cá»§a|cáº§u thá»§|player|stats|thá»‘ng kĂª)\\b", " ")
+            .replaceAll("(?i)\\b(phân tích|analyze|compare|so sánh|của|cầu thủ|player|stats|thống kê)\\b", " ")
             .replaceAll("[^\\p{L}\\p{N}\\s]", " ")
             .replaceAll("\\s+", " ")
             .trim();
         if (cleaned.isBlank()) {
             return query.trim();
         }
-        // Prefer the longest token-ish phrase (likely the name)
         return cleaned;
     }
 }

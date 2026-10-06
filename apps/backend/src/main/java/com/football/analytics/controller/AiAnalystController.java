@@ -28,11 +28,10 @@ public class AiAnalystController {
     public ApiResponse<List<String>> getSuggestedPrompts() {
         long start = System.currentTimeMillis();
         List<String> prompts = List.of(
-            "Phân tích cầu thủ từ dữ liệu La Liga đã ingest",
-            "Liệt kê thống kê mùa giải của một cầu thủ trong ClickHouse",
-            "So sánh hai cầu thủ bằng số liệu mart_player_season_stats",
-            "Xem trận đấu thật đã load từ StatsBomb open data",
-            "Kiểm tra hệ thống đã kết nối ClickHouse chưa?"
+            "Phân tích một cầu thủ đã có trong kho dữ liệu",
+            "So sánh hai cầu thủ bằng thống kê mùa giải",
+            "Cho tôi goals, assists và xG của một tiền đạo",
+            "Kiểm tra hệ thống đã kết nối PostgreSQL chưa?"
         );
         return ApiResponse.success(prompts, start, true);
     }

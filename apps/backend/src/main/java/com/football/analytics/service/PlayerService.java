@@ -27,7 +27,7 @@ public class PlayerService {
             List<Player> players = PostgresRepository.getAllPlayers(query, position);
             return players != null ? players : Collections.emptyList();
         } catch (Exception e) {
-            log.error("ClickHouse players query failed: {}", e.getMessage());
+            log.error("Players query failed: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -40,7 +40,7 @@ public class PlayerService {
         } catch (ResourceNotFoundException e) {
             throw e;
         } catch (Exception e) {
-            log.error("ClickHouse getPlayer query failed: {}", e.getMessage());
+            log.error("getPlayer query failed: {}", e.getMessage());
             throw new ResourceNotFoundException(
                 "PLAYER_NOT_FOUND", "Player with id " + id + " not found.");
         }
@@ -56,7 +56,7 @@ public class PlayerService {
         } catch (ResourceNotFoundException e) {
             throw e;
         } catch (Exception e) {
-            log.error("ClickHouse getPlayerStats query failed: {}", e.getMessage());
+            log.error("getPlayerStats query failed: {}", e.getMessage());
             throw new ResourceNotFoundException(
                 "STATS_NOT_FOUND",
                 "Statistics for player " + playerId + " in season " + seasonId + " not found.");
@@ -69,7 +69,7 @@ public class PlayerService {
             List<ShotEvent> shots = PostgresRepository.getPlayerShots(playerId, seasonId);
             return shots != null ? shots : Collections.emptyList();
         } catch (Exception e) {
-            log.error("ClickHouse getPlayerShots query failed: {}", e.getMessage());
+            log.error("getPlayerShots query failed: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -95,18 +95,26 @@ public class PlayerService {
         PlayerSeasonStats s1 = statsList.get(0);
         PlayerSeasonStats s2 = statsList.get(1);
 
+        addMetric(metricMap, "Goals", toDouble(s1.getGoals()), toDouble(s2.getGoals()), p1.getName(), p2.getName());
+        addMetric(metricMap, "Assists", toDouble(s1.getAssists()), toDouble(s2.getAssists()), p1.getName(), p2.getName());
         addMetric(metricMap, "Goals per 90", s1.getGoalsPer90(), s2.getGoalsPer90(), p1.getName(), p2.getName());
         addMetric(metricMap, "Assists per 90", s1.getAssistsPer90(), s2.getAssistsPer90(), p1.getName(), p2.getName());
         addMetric(metricMap, "xG per 90", s1.getXgPer90(), s2.getXgPer90(), p1.getName(), p2.getName());
         addMetric(metricMap, "xA per 90", s1.getXaPer90(), s2.getXaPer90(), p1.getName(), p2.getName());
         addMetric(metricMap, "Shots per 90", s1.getShotsPer90(), s2.getShotsPer90(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Pass Accuracy %", s1.getPassCompletionRate(), s2.getPassCompletionRate(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Duel Win %", s1.getDuelWinRate(), s2.getDuelWinRate(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Finishing Rating", (double) s1.getFinishingRating(), (double) s2.getFinishingRating(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Creation Rating", (double) s1.getCreationRating(), (double) s2.getCreationRating(), p1.getName(), p2.getName());
-        addMetric(metricMap, "Progression Rating", (double) s1.getProgressionRating(), (double) s2.getProgressionRating(), p1.getName(), p2.getName());
+        // Only include rates when both sides have real values (never invent)
+        if (s1.getPassCompletionRate() != null && s2.getPassCompletionRate() != null) {
+            addMetric(metricMap, "Pass Accuracy %", s1.getPassCompletionRate(), s2.getPassCompletionRate(), p1.getName(), p2.getName());
+        }
+        if (s1.getDuelWinRate() != null && s2.getDuelWinRate() != null) {
+            addMetric(metricMap, "Duel Win %", s1.getDuelWinRate(), s2.getDuelWinRate(), p1.getName(), p2.getName());
+        }
 
         return new ComparisonDto(playerList, statsList, metricMap);
+    }
+
+    private Double toDouble(Integer v) {
+        return v != null ? v.doubleValue() : 0.0;
     }
 
     private void addMetric(Map<String, ComparisonDto.MetricComparison> map, String name,
