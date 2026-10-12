@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../services/api';
 import MatchDetailModal from './MatchDetailModal';
 
@@ -99,7 +99,7 @@ function TeamCrest({ src, name, size = 32 }) {
 }
 
 export default function MatchCenter({ onAskAi }) {
-  const [matches, setMatches] = useState([]);
+  const [allMatches, setAllMatches] = useState([]);
   const [competitions, setCompetitions] = useState([]);
   const [selectedComp, setSelectedComp] = useState('ALL');
   const [selectedDate, setSelectedDate] = useState('ALL');
@@ -108,6 +108,7 @@ export default function MatchCenter({ onAskAi }) {
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const hasInitializedDateRef = useRef(false);
 
   useEffect(() => {
     async function loadData() {
@@ -117,11 +118,8 @@ export default function MatchCenter({ onAskAi }) {
         const compRes = await api.getCompetitions().catch(() => ({ data: [] }));
         setCompetitions(compRes.data || []);
 
-        const params = { limit: 250 };
-        if (selectedComp !== 'ALL') params.competition_id = selectedComp;
-        if (statusFilter !== 'ALL') params.status = statusFilter;
-
-        const matchRes = await api.getMatches(params);
+        // Load complete match schedule once so date ribbon stays permanent and stable
+        const matchRes = await api.getMatches({ limit: 500 });
         const list = Array.isArray(matchRes.data) ? [...matchRes.data] : [];
 
         // Sort newest date first, with LIVE prioritized
@@ -133,17 +131,22 @@ export default function MatchCenter({ onAskAi }) {
           return tb - ta;
         });
 
-        setMatches(list);
+        setAllMatches(list);
 
-        // Auto-select date with matches closest to today
-        const now = new Date();
-        const todayK = dateKey(now.toISOString());
-        const dateKeysSet = new Set(list.map((m) => dateKey(m.match_date)));
-        if (dateKeysSet.has(todayK)) {
-          setSelectedDate(todayK);
-        } else if (list.length > 0) {
-          const firstDate = dateKey(list[0].match_date);
-          setSelectedDate(firstDate);
+        // Auto-select date only on initial component mount
+        if (!hasInitializedDateRef.current && list.length > 0) {
+          const now = new Date();
+          const todayK = dateKey(now.toISOString());
+          const dateKeysSet = new Set(list.map((m) => dateKey(m.match_date)));
+          if (dateKeysSet.has(todayK)) {
+            setSelectedDate(todayK);
+          } else {
+            const sortedDates = [...dateKeysSet].filter((k) => k !== 'unknown').sort((a, b) => a.localeCompare(b));
+            // Find closest date to today or the latest available date
+            const todayOrLater = sortedDates.find((d) => d >= todayK);
+            setSelectedDate(todayOrLater || sortedDates[sortedDates.length - 1] || 'ALL');
+          }
+          hasInitializedDateRef.current = true;
         }
       } catch (err) {
         console.error(err);
@@ -153,20 +156,30 @@ export default function MatchCenter({ onAskAi }) {
       }
     }
     loadData();
-  }, [selectedComp, statusFilter]);
+  }, []);
 
-  // Extract distinct dates sorted CHRONOLOGICALLY (past -> today -> future, left to right)
+  // Distinct dates sorted CHRONOLOGICALLY based on all matches (Rock-solid, never mutates when filtering tournament!)
   const chronologicalDates = useMemo(() => {
     const set = new Set();
-    for (const m of matches) {
+    for (const m of allMatches) {
       const k = dateKey(m.match_date);
       if (k !== 'unknown') {
         set.add(k);
       }
     }
-    // Sort ascending (earliest on left, latest on right)
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [matches]);
+  }, [allMatches]);
+
+  // Match count per competition
+  const compMatchCounts = useMemo(() => {
+    const map = {};
+    for (const m of allMatches) {
+      if (m.competition_id) {
+        map[m.competition_id] = (map[m.competition_id] || 0) + 1;
+      }
+    }
+    return map;
+  }, [allMatches]);
 
   // Handle previous / next date navigation
   const handlePrevDate = () => {
@@ -191,12 +204,26 @@ export default function MatchCenter({ onAskAi }) {
     }
   };
 
-  // Filter matches by selected date and search text
+  // Filter matches client-side: tournament, status, date, search
   const filteredMatches = useMemo(() => {
-    let result = matches;
+    let result = allMatches;
+
+    if (selectedComp !== 'ALL') {
+      result = result.filter(
+        (m) =>
+          String(m.competition_id) === String(selectedComp) ||
+          (m.competition_name && m.competition_name.toLowerCase().includes(String(selectedComp).toLowerCase()))
+      );
+    }
+
+    if (statusFilter !== 'ALL') {
+      result = result.filter((m) => m.status === statusFilter);
+    }
+
     if (selectedDate !== 'ALL') {
       result = result.filter((m) => dateKey(m.match_date) === selectedDate);
     }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter(
@@ -207,8 +234,9 @@ export default function MatchCenter({ onAskAi }) {
           (m.stadium && m.stadium.toLowerCase().includes(q))
       );
     }
+
     return result;
-  }, [matches, selectedDate, searchQuery]);
+  }, [allMatches, selectedComp, statusFilter, selectedDate, searchQuery]);
 
   // Group filtered matches by LEAGUE / COMPETITION
   const leagueGroups = useMemo(() => {
@@ -226,6 +254,11 @@ export default function MatchCenter({ onAskAi }) {
     }
     return [...groups.values()];
   }, [filteredMatches]);
+
+  const currentSelectedCompObj = useMemo(() => {
+    if (selectedComp === 'ALL') return null;
+    return competitions.find((c) => String(c.competition_id) === String(selectedComp)) || null;
+  }, [competitions, selectedComp]);
 
   return (
     <div className="match-center-container">
@@ -323,11 +356,14 @@ export default function MatchCenter({ onAskAi }) {
             style={{ padding: '6px 12px', fontSize: '13px', width: 'auto' }}
           >
             <option value="ALL">Tất cả giải đấu ({competitions.length})</option>
-            {competitions.map((c) => (
-              <option key={c.competition_id} value={c.competition_id}>
-                {c.name}
-              </option>
-            ))}
+            {competitions.map((c) => {
+              const count = compMatchCounts[c.competition_id];
+              return (
+                <option key={c.competition_id} value={c.competition_id}>
+                  {c.name} {count ? `(${count} trận)` : ''}
+                </option>
+              );
+            })}
           </select>
         </div>
       </div>
@@ -343,10 +379,33 @@ export default function MatchCenter({ onAskAi }) {
         </div>
       ) : filteredMatches.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-title">Không có trận đấu nào trong ngày này</div>
-          <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
-            Hãy chọn tab <strong>"Tất cả các trận"</strong> hoặc chọn ngày khác để theo dõi lịch thi đấu.
+          <div className="empty-state-title">
+            {selectedComp !== 'ALL'
+              ? `${currentSelectedCompObj ? currentSelectedCompObj.name : 'Giải đấu đã chọn'} không có trận đấu vào ngày này`
+              : 'Không có trận đấu nào trong ngày này'}
           </div>
+          <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
+            {selectedComp !== 'ALL' && selectedDate !== 'ALL' ? (
+              <span>
+                Thử chọn ngày khác trên thanh lịch phía trên, hoặc bấm nút bên dưới để xem toàn bộ lịch thi đấu của giải.
+              </span>
+            ) : (
+              <span>
+                Hãy chọn các ngày khác trên thanh lịch hoặc bấm tab <strong>"Tất cả các trận"</strong>.
+              </span>
+            )}
+          </div>
+          {selectedDate !== 'ALL' && (
+            <div style={{ marginTop: '16px' }}>
+              <button
+                className="filter-btn active"
+                onClick={() => setSelectedDate('ALL')}
+                style={{ padding: '8px 18px', fontWeight: 700 }}
+              >
+                📅 Xem tất cả lịch của {currentSelectedCompObj ? currentSelectedCompObj.name : 'giải đấu'}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="tournament-groups-list">
