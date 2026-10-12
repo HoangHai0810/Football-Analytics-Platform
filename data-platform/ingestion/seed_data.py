@@ -229,11 +229,27 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
         # Fetch real player profiles from lineups (accurate nationality, jersey number, position, avatar)
         try:
             lineups = sb.lineups(match_id=match_id)
-            for _, df_lineup in lineups.items():
+            # lineups dict: team_id_int -> DataFrame
+            for lineup_team_id, df_lineup in lineups.items():
+                # lineup_team_id may be int or str — normalise
+                try:
+                    lineup_tid = int(lineup_team_id)
+                except (ValueError, TypeError):
+                    lineup_tid = 0
+
                 for _, p_row in df_lineup.iterrows():
                     pid = int(p_row["player_id"])
                     pname = str(p_row.get("player_name") or p_row.get("player_nickname") or "").strip()
-                    p_country = str(p_row.get("country") or "International").strip()
+
+                    # StatsBomb 'country' field can be a dict {"id":..., "name":...} or a plain string
+                    raw_country = p_row.get("country", "")
+                    if isinstance(raw_country, dict):
+                        p_country = str(raw_country.get("name") or "").strip()
+                    else:
+                        p_country = str(raw_country or "").strip()
+                    if not p_country:
+                        p_country = ""
+
                     p_jersey = int(p_row.get("jersey_number") or 0)
 
                     positions_list = p_row.get("positions")
@@ -250,17 +266,23 @@ def seed_season(cur, conn, comp_id, season_id, comp_name, season_name, comp_type
                             pos_short = "GK"
 
                     # No reliable open photo URL from StatsBomb lineups — leave empty
-                    avatar = ""
-
                     cur.execute("""
-                        INSERT INTO dim_player (player_id, name, date_of_birth, nationality, position, preferred_foot, jersey_number, avatar_url)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO dim_player
+                          (player_id, name, date_of_birth, nationality, position,
+                           preferred_foot, jersey_number, avatar_url, team_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (player_id) DO UPDATE
-                          SET name=EXCLUDED.name, nationality=EXCLUDED.nationality,
+                          SET name=EXCLUDED.name,
+                              nationality=COALESCE(NULLIF(EXCLUDED.nationality, ''), dim_player.nationality),
                               position=COALESCE(NULLIF(EXCLUDED.position, ''), dim_player.position),
-                              jersey_number=CASE WHEN EXCLUDED.jersey_number > 0 THEN EXCLUDED.jersey_number ELSE dim_player.jersey_number END,
+                              jersey_number=CASE WHEN EXCLUDED.jersey_number > 0
+                                            THEN EXCLUDED.jersey_number
+                                            ELSE dim_player.jersey_number END,
+                              team_id=CASE WHEN EXCLUDED.team_id > 0
+                                          THEN EXCLUDED.team_id
+                                          ELSE dim_player.team_id END,
                               updated_at=NOW()
-                    """, (pid, pname, None, p_country, pos_short, "", p_jersey, avatar))
+                    """, (pid, pname, None, p_country, pos_short, "", p_jersey, "", lineup_tid))
             conn.commit()
         except Exception as e:
             print(f"    ⚠️ Could not fetch lineups for match {match_id}: {e}")
