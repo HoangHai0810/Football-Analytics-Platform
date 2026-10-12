@@ -170,10 +170,16 @@ export const api = {
   /**
    * POST /ai/analyze
    */
-  async queryAiAnalyst(query, playerId = null) {
+  async queryAiAnalyst(query, playerId = null, matchId = null) {
+    let body = {};
+    if (typeof query === 'object' && query !== null) {
+      body = query;
+    } else {
+      body = { query, player_id: playerId, match_id: matchId };
+    }
     return apiFetch('/ai/analyze', {
       method: 'POST',
-      body: JSON.stringify({ query, player_id: playerId }),
+      body: JSON.stringify(body),
     });
   },
 

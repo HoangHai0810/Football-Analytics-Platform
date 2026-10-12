@@ -8,10 +8,16 @@ import AiAnalystChat from './components/AiAnalystChat';
 export default function App() {
   const [activeTab, setActiveTab] = useState('matches');
   const [comparedPlayerId, setComparedPlayerId] = useState(null);
+  const [aiConfig, setAiConfig] = useState({ query: '', matchId: null, playerId: null });
 
   const handleComparePlayer = (playerId) => {
     setComparedPlayerId(playerId);
     setActiveTab('compare');
+  };
+
+  const handleAskAi = (query, matchId = null, playerId = null) => {
+    setAiConfig({ query, matchId, playerId });
+    setActiveTab('ai-analyst');
   };
 
   return (
@@ -19,22 +25,33 @@ export default function App() {
       <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className="main-content">
-        {activeTab === 'matches' && <MatchCenter />}
+        {activeTab === 'matches' && (
+          <MatchCenter onAskAi={handleAskAi} />
+        )}
 
         {activeTab === 'players' && (
-          <PlayerIntelligence onComparePlayer={handleComparePlayer} />
+          <PlayerIntelligence
+            onComparePlayer={handleComparePlayer}
+            onAskAi={handleAskAi}
+          />
         )}
 
         {activeTab === 'compare' && (
           <PlayerComparison initialPlayerId={comparedPlayerId} />
         )}
 
-        {activeTab === 'ai-analyst' && <AiAnalystChat />}
+        {activeTab === 'ai-analyst' && (
+          <AiAnalystChat
+            initialQuery={aiConfig.query}
+            initialMatchId={aiConfig.matchId}
+            initialPlayerId={aiConfig.playerId}
+          />
+        )}
       </main>
 
       <footer className="app-footer">
         <div className="app-footer-inner">
-          PitchPulse — phân tích bóng đá từ dữ liệu đã đồng bộ
+          PitchPulse — Nền tảng phân tích bóng đá chuyên nghiệp từ nguồn dữ liệu thực tế
         </div>
       </footer>
     </div>

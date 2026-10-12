@@ -63,7 +63,7 @@ function StatBox({ value, label, color }) {
 
 const POSITIONS = ['ALL', 'GK', 'DF', 'MF', 'FW'];
 
-export default function PlayerIntelligence({ onComparePlayer }) {
+export default function PlayerIntelligence({ onComparePlayer, onAskAi }) {
   const [players, setPlayers] = useState([]);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerStats, setPlayerStats] = useState(null);
@@ -225,12 +225,23 @@ export default function PlayerIntelligence({ onComparePlayer }) {
                   </div>
                 </div>
 
-                <button
-                  className="filter-btn active"
-                  onClick={() => onComparePlayer(selectedPlayer.player_id)}
-                >
-                  So sánh
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {onAskAi && (
+                    <button
+                      className="filter-btn"
+                      onClick={() => onAskAi(`Phân tích phong độ và chỉ số của cầu thủ ${selectedPlayer.name}`, null, selectedPlayer.player_id)}
+                      style={{ background: 'rgba(139, 92, 246, 0.15)', borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc' }}
+                    >
+                      ⚡ Hỏi AI
+                    </button>
+                  )}
+                  <button
+                    className="filter-btn active"
+                    onClick={() => onComparePlayer(selectedPlayer.player_id)}
+                  >
+                    So sánh
+                  </button>
+                </div>
               </div>
 
               {statsLoading ? (

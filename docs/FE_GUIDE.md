@@ -84,14 +84,13 @@ npm --prefix apps/frontend run build
 
 ## 6. 📝 Trạng thái & Tiến độ FE
 
-- [x] Header: Bỏ "StatsBomb" branding → thay bằng live DB stats (match/player count)
-- [x] MatchCenter: Nhóm theo ngày, hiển thị giờ kickoff, status badge tiếng Việt, xG bar chỉ khi có data
-- [x] MatchCenter: Team crest với initials fallback thay vì ui-avatars
-- [x] MatchCenter: Empty state Vietnamese khi không có data
-- [x] PlayerIntelligence: Tìm kiếm, lọc vị trí, avatar fallback bằng initials
-- [x] PlayerIntelligence: Load stats + shots song song (Promise.all), graceful no-stats state
-- [x] PlayerComparison: Auto-pick 2 cầu thủ từ danh sách thực; error state tiếng Việt
-- [x] AiAnalystChat: Grounded facts, không hallucinate số liệu
-- [x] CSS: Thêm .player-avatar-fallback, .match-comp, .match-kickoff, .match-venue, .score-date, .player-layout, .stats-grid, v.v.
-- [x] Footer: Bỏ "StatsBomb Open Data" — chỉ còn "PitchPulse — Nền tảng phân tích bóng đá"
-- [x] Build production pass: vite build → dist 178KB JS / 16KB CSS
+- [x] Header: Bỏ hoàn toàn số lượng database/chấm xanh kỹ thuật, thay bằng thanh điều hướng thể thao cao cấp và chuyên nghiệp
+- [x] MatchCenter: Thiết kế lại theo chuẩn Sofascore/FotMob:
+  - Thanh chọn ngày ngang (Date Ribbon) trực quan: Hôm nay, Hôm qua, Ngày mai và các ngày có trận đấu kèm số lượng trận
+  - Phân cấp chuẩn theo Giải đấu (Tournament/League-first): Gom các trận vào từng bảng giải đấu (Premier League, La Liga, Serie A...) thay vì dàn trải lộn xộn
+  - Match Row Card tương tác cao: Logo đội, tỷ số/giờ đá, sân vận động, badge xG
+- [x] MatchDetailModal: Bấm vào bất kỳ trận đấu nào để mở popup chi tiết (Bảng tỷ số lớn, thời gian, sân vận động, khán giả, thanh so sánh xG, nút "⚡ Hỏi AI Phân Tích Trận Này")
+- [x] AI Analyst: Kết nối trực tiếp từ MatchCenter và PlayerIntelligence qua `onAskAi`, tự động điều hướng sang tab AI kèm context trận/cầu thủ
+- [x] AiAnalystChat: Thay thế các prompt lỗi bằng bộ prompt thực chiến hoạt động 100%, bổ sung chip gợi ý câu hỏi tiếp theo
+- [x] Backend AI: `AiAnalystService` hỗ trợ phân tích chi tiết trận đấu (`matchId`), phân tích phong độ đội bóng và tổng quan các giải đấu
+- [x] Build production pass: vite build → dist hoàn tất thành công không lỗi
