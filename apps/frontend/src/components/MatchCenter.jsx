@@ -170,16 +170,44 @@ export default function MatchCenter({ onAskAi }) {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [allMatches]);
 
-  // Match count per competition
-  const compMatchCounts = useMemo(() => {
-    const map = {};
+  // Distinct competitions deduplicated by name and with accurate match count
+  const displayCompetitions = useMemo(() => {
+    const compMap = new Map();
+
+    // 1. Collect all tournaments that actually have matches in allMatches
     for (const m of allMatches) {
-      if (m.competition_id) {
-        map[m.competition_id] = (map[m.competition_id] || 0) + 1;
+      const name = m.competition_name ? m.competition_name.trim() : null;
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!compMap.has(key)) {
+        compMap.set(key, {
+          competition_id: m.competition_id,
+          name: name,
+          count: 0,
+        });
+      }
+      compMap.get(key).count += 1;
+    }
+
+    // 2. If allMatches is still empty, fallback to api competitions (deduplicated by name)
+    if (compMap.size === 0 && Array.isArray(competitions)) {
+      for (const c of competitions) {
+        const name = c.name ? c.name.trim() : null;
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (!compMap.has(key)) {
+          compMap.set(key, {
+            competition_id: c.competition_id,
+            name: name,
+            count: 0,
+          });
+        }
       }
     }
-    return map;
-  }, [allMatches]);
+
+    // Sort by match count descending, then alphabetically
+    return [...compMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [allMatches, competitions]);
 
   // Handle previous / next date navigation
   const handlePrevDate = () => {
@@ -209,10 +237,11 @@ export default function MatchCenter({ onAskAi }) {
     let result = allMatches;
 
     if (selectedComp !== 'ALL') {
+      const scLower = selectedComp.toLowerCase().trim();
       result = result.filter(
         (m) =>
-          String(m.competition_id) === String(selectedComp) ||
-          (m.competition_name && m.competition_name.toLowerCase().includes(String(selectedComp).toLowerCase()))
+          (m.competition_name && m.competition_name.toLowerCase().trim() === scLower) ||
+          String(m.competition_id) === String(selectedComp)
       );
     }
 
@@ -355,15 +384,12 @@ export default function MatchCenter({ onAskAi }) {
             onChange={(e) => setSelectedComp(e.target.value)}
             style={{ padding: '6px 12px', fontSize: '13px', width: 'auto' }}
           >
-            <option value="ALL">Tất cả giải đấu ({competitions.length})</option>
-            {competitions.map((c) => {
-              const count = compMatchCounts[c.competition_id];
-              return (
-                <option key={c.competition_id} value={c.competition_id}>
-                  {c.name} {count ? `(${count} trận)` : ''}
-                </option>
-              );
-            })}
+            <option value="ALL">Tất cả giải đấu ({displayCompetitions.length})</option>
+            {displayCompetitions.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name} {c.count ? `(${c.count} trận)` : ''}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -381,7 +407,7 @@ export default function MatchCenter({ onAskAi }) {
         <div className="empty-state">
           <div className="empty-state-title">
             {selectedComp !== 'ALL'
-              ? `${currentSelectedCompObj ? currentSelectedCompObj.name : 'Giải đấu đã chọn'} không có trận đấu vào ngày này`
+              ? `${selectedComp} không có trận đấu vào ngày này`
               : 'Không có trận đấu nào trong ngày này'}
           </div>
           <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
@@ -402,7 +428,7 @@ export default function MatchCenter({ onAskAi }) {
                 onClick={() => setSelectedDate('ALL')}
                 style={{ padding: '8px 18px', fontWeight: 700 }}
               >
-                📅 Xem tất cả lịch của {currentSelectedCompObj ? currentSelectedCompObj.name : 'giải đấu'}
+                📅 Xem tất cả lịch của {selectedComp !== 'ALL' ? selectedComp : 'các giải'}
               </button>
             </div>
           )}

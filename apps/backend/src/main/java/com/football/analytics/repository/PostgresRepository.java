@@ -61,8 +61,9 @@ public class PostgresRepository {
             "CREATE INDEX IF NOT EXISTS idx_dim_player_team ON dim_player (team_id)",
             // Cleanup invented / mis-mapped presentation fields
             "UPDATE dim_team SET stadium = '', updated_at = NOW() WHERE stadium ILIKE 'Stadium of %' OR lower(stadium) = 'stadium'",
-            "UPDATE dim_team t SET logo_url = '', updated_at = NOW() WHERE t.logo_url LIKE 'https://crests.football-data.org/%' AND EXISTS (SELECT 1 FROM dim_competition c WHERE c.name = t.country)",
-            "UPDATE dim_player SET avatar_url = '' WHERE avatar_url LIKE '%ui-avatars.com%' OR avatar_url LIKE '%crests.football-data.org%'"
+            "UPDATE dim_player SET avatar_url = '' WHERE avatar_url LIKE '%ui-avatars.com%' OR avatar_url LIKE '%crests.football-data.org%'",
+            // Cleanup orphan competition records that have 0 matches
+            "DELETE FROM dim_competition c WHERE NOT EXISTS (SELECT 1 FROM dim_match m WHERE m.competition_id = c.competition_id) AND c.competition_id < 1000"
         };
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             for (String sql : ddl) {
@@ -100,21 +101,35 @@ public class PostgresRepository {
 
     public List<Competition> getAllCompetitions() {
         List<Competition> list = new ArrayList<>();
-        String sql = "SELECT competition_id, name, country, type, updated_at FROM dim_competition ORDER BY competition_id";
+        // Only return competitions that actually have matches in dim_match!
+        // Deduplicate by name so duplicate IDs (like StatsBomb id=2 vs football-data id=2021) do not clutter.
+        String sql = "SELECT c.competition_id, c.name, coalesce(c.country, '') as country, " +
+                     "coalesce(c.type, 'LEAGUE') as type, c.updated_at " +
+                     "FROM dim_competition c " +
+                     "WHERE EXISTS (SELECT 1 FROM dim_match m WHERE m.competition_id = c.competition_id) " +
+                     "ORDER BY c.competition_id DESC";
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
+            Map<String, Competition> deduplicated = new LinkedHashMap<>();
             while (rs.next()) {
                 Timestamp ts = rs.getTimestamp("updated_at");
                 LocalDateTime updatedAt = ts != null ? ts.toLocalDateTime() : LocalDateTime.now();
-                list.add(new Competition(
-                    rs.getLong("competition_id"),
-                    rs.getString("name"),
-                    rs.getString("country"),
-                    rs.getString("type"),
-                    updatedAt
-                ));
+                String name = rs.getString("name");
+                String normName = name != null ? name.trim().toLowerCase() : "";
+                if (!deduplicated.containsKey(normName)) {
+                    deduplicated.put(normName, new Competition(
+                        rs.getLong("competition_id"),
+                        name,
+                        rs.getString("country"),
+                        rs.getString("type"),
+                        updatedAt
+                    ));
+                }
             }
+            list.addAll(deduplicated.values());
+            // Sort alphabetically by name
+            list.sort((a, b) -> a.getName().compareToIgnoreCase(b.getName()));
         } catch (Exception e) {
             log.error("Failed to fetch competitions: {}", e.getMessage());
         }
