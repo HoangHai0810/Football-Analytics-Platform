@@ -239,3 +239,35 @@ events = sb.events(match_id=7430)
 | Thông tin đội bóng | Bảng `dim_team` đầy đủ `team_id`, `name`, `logo_url` |
 | Dữ liệu mới nhất | Seed data kịp thời; Kestra pipeline / GitHub Actions cron chạy đúng lịch hàng ngày |
 | Schema ổn định | Thông báo BE **ít nhất 1 ngày trước** khi thay đổi cấu trúc bảng |
+
+---
+
+## 6. ✅ Lịch sử Thay đổi & Fix (Changelog)
+
+### 2026-10-06 — Round of Fixes (Commits c885e95 → 0d51a23)
+
+**Schema (`infrastructure/postgres/init_analytics.sql`):**
+- Thêm cột `jersey_number INTEGER DEFAULT 0` và `avatar_url TEXT DEFAULT ''` vào `dim_player`
+- Thêm cột `team_id BIGINT DEFAULT 0` vào `dim_player` (dùng để join trực tiếp team mà không cần qua `fact_player_match`)
+- Thêm `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` idempotent cho các deployment cũ
+
+**`seed_data.py` (StatsBomb full backfill):**
+- Bỏ `TEAM_LOGOS` dict hardcoded — để trống logo cho tất cả team, football-data.org sync sẽ cập nhật crest thật
+- Fix lineup loop: lấy `team_id` từ key của dict `lineups` (StatsBomb trả về `{team_id: DataFrame}`)
+- Fix `country` field: StatsBomb trả về dict `{"id": ..., "name": "..."}` thay vì string — parse đúng
+- Lineup insert giờ include `team_id` vào `dim_player`
+- Xóa heuristic "infer nationality from competition name" — để trống nếu không biết
+- `materialize_mart()`: tính đủ các per-90 metrics, shot_accuracy_pct từ `fact_player_match`
+
+**`sync_recent_matches.py` (football-data.org rolling window):**
+- `sync_team_squad()`: fetch crest + venue + squad roster từ football-data.org `/v4/teams/{id}`
+- `upsert_player()`: include `team_id` khi insert squad players
+- `ensure_schema()`: cleanup invented stadium placeholders và wrong-mapped crests
+
+**`PostgresRepository.java` (Backend):**
+- `getAllPlayers()`: 3-tier fallback (LATERAL join → team_id join → minimal) để không bao giờ trả về `[]` nếu DB có data
+- `mapTeam()`: sanitize stadium placeholders và logo URLs không hợp lệ
+- `calculateRadarRatings()`: private method đã tồn tại, fix compilation error
+- SQL fix: `round(cast(sum(xg) as numeric), 2)` để cast đúng kiểu PostgreSQL
+- Fix alias `awt` cho `dim_team` away team trong match query
+

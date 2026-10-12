@@ -2,108 +2,96 @@
 
 > **Vai trò:** Frontend Engineer  
 > **Thư mục ứng dụng:** `apps/frontend/`  
-> **Techstack cốt lõi:** React 18, Vite 6, Tailwind CSS, Lucide Icons  
+> **Techstack cốt lõi:** React 18, Vite 6, Vanilla CSS (Dark Glassmorphism Design System)  
 > **Containerization:** Multi-stage Docker (Node 22 Alpine builder ➔ Nginx 1.27 Alpine runtime)  
-> **Base URL:** `/api/v1` (Nginx reverse-proxy ➔ Spring Boot backend:8000)
+> **Base URL:** `/api/v1` (gọi thẳng backend production hoặc localhost dev)
 
 ---
 
 ## 1. 🎯 Tổng quan Kiến trúc Frontend
 
-Ứng dụng Frontend được xây dựng dưới dạng **Single Page Application (SPA)** hiện đại, hướng đến trải nghiệm cao cấp (Glassmorphism, Dark Mode Slate-900, Dynamic Visualizations):
+Ứng dụng Frontend là **Single Page Application (SPA)** với giao diện dark-mode cao cấp (Glassmorphism, dynamic animations, no placeholder data):
 
 ```
-[Trình duyệt Người dùng] (http://localhost:3000)
-         │
-         ▼
-[Nginx Reverse Proxy & Static Server] (Port 80 bên trong container `football_frontend`)
-   ├── /assets/*  ──► Phục vụ file bundle JS/CSS đã nén gzip & cached
-   ├── /health    ──► Proxy đến Spring Boot Backend (http://backend:8000/health)
-   ├── /nginx-health ──► Docker Container Healthcheck endpoint
-   └── /api/*     ──► Proxy trong suốt đến Spring Boot Backend (http://backend:8000/api/*)
+[Người dùng] → [React SPA] → [api.js] → [Spring Boot REST API /api/v1]
+                                        → [PostgreSQL analytics DB]
 ```
 
 ---
 
-## 2. 🧰 Thư viện & Công nghệ Sử dụng
+## 2. 🧰 Công nghệ Sử dụng
 
-| Công cụ / Thư viện | Phiên bản | Mục đích & Vai trò |
+| Công cụ | Phiên bản | Mục đích |
 | :--- | :--- | :--- |
-| **React** | 18.3.1 | Core UI Framework với React Hooks (`useState`, `useEffect`, `useMemo`) |
-| **Vite** | 6.4.3 | Fast build tool & Dev server HMR (port 5173 ở dev, static build ở prod) |
-| **Tailwind CSS** | 3.4.17 | Styling tiện ích, bảng màu Dark Football theme (Emerald, Blue, Amber, Slate) |
-| **Lucide React** | 1.16.0 | Hệ thống icon chuẩn mực, hiện đại |
-| **Nginx** | 1.27-alpine | Web server production, hỗ trợ gzip, browser caching, reverse proxy |
+| **React** | 18.3.1 | Core UI Framework |
+| **Vite** | 6.4.3 | Build tool & Dev server HMR |
+| **Vanilla CSS** | — | Custom design system (index.css) |
+| **Nginx** | 1.27-alpine | Production web server |
 
 ---
 
-## 3. 📂 Cấu trúc Thư mục `apps/frontend/`
+## 3. 📂 Cấu trúc `apps/frontend/src/`
 
 ```
-apps/frontend/
-├── Dockerfile                   # Multi-stage Docker: Node 22 build ➔ Nginx runtime
-├── .dockerignore                # Loại trừ node_modules, dist, .env
-├── nginx.conf                   # Cấu hình Nginx: SPA fallback, gzip, proxy_pass /api/
-├── package.json                 # Dependencies & build scripts
-├── vite.config.js               # Vite config + proxy dev port 8000
-├── src/
-│   ├── main.jsx                 # Entry point ReactDOM
-│   ├── App.jsx                  # Main Dashboard Container, tab switching, live status banner
-│   ├── index.css                # Tailwind directives & custom animations
-│   ├── components/
-│   │   ├── Header.jsx           # Topbar navigation, live status indicator, season selector
-│   │   ├── PlayerIntelligence.jsx # Danh sách cầu thủ, metric filter, radar chart preview
-│   │   ├── RadarChart.jsx       # Custom SVG Radar 6 trục (Shooting, Passing, Dribbling, etc.)
-│   │   ├── PlayerComparison.jsx # So sánh đối đầu 2 cầu thủ, diff bars & radar song song
-│   │   └── AiAnalystChat.jsx    # Chatbot phân tích chiến thuật, canned prompts, markdown formatting
-│   └── services/
-│       └── api.js               # API Client trung tâm, fallback mock data thông minh
+src/
+├── main.jsx                  # Entry point ReactDOM
+├── App.jsx                   # Main container, tab switching, footer
+├── index.css                 # Design system: tokens, animations, all component styles
+├── components/
+│   ├── Header.jsx            # Navbar + live DB stats indicator (match/player count)
+│   ├── MatchCenter.jsx       # Danh sách trận, nhóm theo ngày, xG bar, status badge
+│   ├── PlayerIntelligence.jsx # Player list + stats + radar + shot map
+│   ├── PlayerComparison.jsx  # So sánh đối đầu 2 cầu thủ, radar song song
+│   ├── AiAnalystChat.jsx     # AI chatbot phân tích, grounded facts
+│   ├── RadarChart.jsx        # SVG Radar 6 trục từ dữ liệu thực
+│   ├── PitchShotMap.jsx      # Pitch SVG shot visualization
+│   └── SystemModal.jsx       # System status modal
+└── services/
+    └── api.js                # API client, NO mock data, throws on failure
 ```
 
 ---
 
-## 4. 🚀 Hướng Dẫn Vận Hành
+## 4. 🔑 Nguyên tắc thiết kế (Design Principles)
 
-### 4.1. Chạy với Docker (Khuyến nghị cho Production/Staging)
+- **Không mock data**: `api.js` luôn throw error nếu backend không trả về — không có fallback giả.
+- **Không hiện logo/avatar giả**: Team crest và player avatar chỉ hiển thị nếu có URL thật từ DB. Nếu thiếu: hiển thị initials fallback (CSS `.player-avatar-fallback`).
+- **Không nhập thông tin kỹ thuật lên UI**: Xóa bỏ "StatsBomb", khỏi header/subtitle — chỉ hiển thị thông tin có nghĩa với user.
+- **Grouping theo ngày**: Matches được nhóm theo ngày (dateKey), sắp xếp mới nhất lên đầu, với label "Hôm nay / Hôm qua / dd/mm/yyyy".
+- **Empty state**: Mỗi view có empty state rõ ràng bằng tiếng Việt thay vì hiển thị blank.
+- **Graceful stats missing**: PlayerIntelligence hiển thị "Chưa có dữ liệu thống kê" nếu `/stats` API trả về null — không crash.
 
-```bash
-# Build image frontend
-docker-compose build frontend
+---
 
-# Chạy container frontend (sẽ tự chạy cùng backend nếu khởi động stack)
-docker-compose up -d frontend
+## 5. 🚀 Hướng Dẫn Vận Hành
 
-# Truy cập Dashboard tại:
-http://localhost:3000
-```
-
-### 4.2. Chạy Local Development (Vite Dev Server)
+### Local Development
 
 ```bash
 cd apps/frontend
 npm install
-npm run dev
-# Mở trình duyệt tại: http://localhost:5173
+npm run dev        # http://localhost:5173
 ```
 
----
+### Production Build
 
-## 5. 🛡️ Xử lý Dữ liệu Ngoại tuyến & Kết nối Backend
-
-Để đảm bảo frontend luôn hoạt động mượt mà ngay cả khi Data Engineering pipeline đang chạy hoặc cơ sở dữ liệu phân tích (PostgreSQL / ClickHouse) chưa hoàn tất nạp dữ liệu:
-- `api.js` được tích hợp cơ chế **Graceful Fallback**:
-  - Gửi request đến Spring Boot REST API (`/api/v1/...`).
-  - Nếu kết nối thành công: hiển thị nhãn **LIVE BACKEND** (màu xanh ngọc).
-  - Nếu backend đang khởi động hoặc chưa online: tự động phục vụ **High-Fidelity Seed Data Store** với độ chính xác cao và hiển thị nhãn **DEMO SEED MODE** (màu hổ phách) minh bạch với người dùng.
+```bash
+npm --prefix apps/frontend run build
+# dist/ được Nginx phục vụ
+```
 
 ---
 
 ## 6. 📝 Trạng thái & Tiến độ FE
 
-- [x] Giao diện Dashboard tổng quan (`App.jsx`, `Header.jsx`)
-- [x] Radar Chart phân tích 6 chiều kỹ chiến thuật bằng SVG toán học chuẩn xác
-- [x] Module Phân tích Cầu thủ (`PlayerIntelligence.jsx`) với bộ lọc vị trí & chỉ số
-- [x] Module So sánh Đối đầu (`PlayerComparison.jsx`) trực quan với delta bars
-- [x] Module AI Assistant (`AiAnalystChat.jsx`) gợi ý chiến thuật, tóm tắt phong độ
-- [x] Docker hóa hoàn toàn với Nginx reverse-proxy
-- [x] Đã kiểm tra build production thành công 100% (`vite build` -> dist)
+- [x] Header: Bỏ "StatsBomb" branding → thay bằng live DB stats (match/player count)
+- [x] MatchCenter: Nhóm theo ngày, hiển thị giờ kickoff, status badge tiếng Việt, xG bar chỉ khi có data
+- [x] MatchCenter: Team crest với initials fallback thay vì ui-avatars
+- [x] MatchCenter: Empty state Vietnamese khi không có data
+- [x] PlayerIntelligence: Tìm kiếm, lọc vị trí, avatar fallback bằng initials
+- [x] PlayerIntelligence: Load stats + shots song song (Promise.all), graceful no-stats state
+- [x] PlayerComparison: Auto-pick 2 cầu thủ từ danh sách thực; error state tiếng Việt
+- [x] AiAnalystChat: Grounded facts, không hallucinate số liệu
+- [x] CSS: Thêm .player-avatar-fallback, .match-comp, .match-kickoff, .match-venue, .score-date, .player-layout, .stats-grid, v.v.
+- [x] Footer: Bỏ "StatsBomb Open Data" — chỉ còn "PitchPulse — Nền tảng phân tích bóng đá"
+- [x] Build production pass: vite build → dist 178KB JS / 16KB CSS
