@@ -82,15 +82,26 @@ npm --prefix apps/frontend run build
 
 ---
 
-## 6. 📝 Trạng thái & Tiến độ FE
+## 6. 📝 Trạng thái & Tiến độ FE & AI (Đã hoàn thiện)
 
-- [x] Header: Bỏ hoàn toàn số lượng database/chấm xanh kỹ thuật, thay bằng thanh điều hướng thể thao cao cấp và chuyên nghiệp
-- [x] MatchCenter: Thiết kế lại theo chuẩn Sofascore/FotMob:
-  - Thanh chọn ngày ngang (Date Ribbon) trực quan: Hôm nay, Hôm qua, Ngày mai và các ngày có trận đấu kèm số lượng trận
-  - Phân cấp chuẩn theo Giải đấu (Tournament/League-first): Gom các trận vào từng bảng giải đấu (Premier League, La Liga, Serie A...) thay vì dàn trải lộn xộn
-  - Match Row Card tương tác cao: Logo đội, tỷ số/giờ đá, sân vận động, badge xG
-- [x] MatchDetailModal: Bấm vào bất kỳ trận đấu nào để mở popup chi tiết (Bảng tỷ số lớn, thời gian, sân vận động, khán giả, thanh so sánh xG, nút "⚡ Hỏi AI Phân Tích Trận Này")
-- [x] AI Analyst: Kết nối trực tiếp từ MatchCenter và PlayerIntelligence qua `onAskAi`, tự động điều hướng sang tab AI kèm context trận/cầu thủ
-- [x] AiAnalystChat: Thay thế các prompt lỗi bằng bộ prompt thực chiến hoạt động 100%, bổ sung chip gợi ý câu hỏi tiếp theo
-- [x] Backend AI: `AiAnalystService` hỗ trợ phân tích chi tiết trận đấu (`matchId`), phân tích phong độ đội bóng và tổng quan các giải đấu
-- [x] Build production pass: vite build → dist hoàn tất thành công không lỗi
+- [x] **Header:** Bỏ hoàn toàn số lượng database kỹ thuật (`650 trận · 4.367 cầu thủ`) và chấm xanh nhấp nháy, thay bằng thanh điều hướng thể thao cao cấp PitchPulse với badge giải đấu 2026/27.
+- [x] **Lịch thi đấu (MatchCenter):**
+  - Đảo chiều lịch theo chuẩn quốc tế: Trục thời gian từ trái qua phải (từ quá khứ đến tương lai), có nút điều hướng tuần tự `‹` và `›`.
+  - Loại bỏ hoàn toàn số trận thừa thãi trong từng nút ngày trên thanh lịch.
+  - Phân cấp theo Giải đấu (Tournament/League-first): Gom các trận đấu vào từng bảng giải đấu (Premier League, La Liga, Serie A, Ligue 1...) gọn gàng.
+  - Click vào bất kỳ trận đấu nào mở ngay popup `MatchDetailModal` với bảng tỷ số lớn, thời gian, sân vận động, thanh so sánh xG, và nút **"⚡ Hỏi AI Phân Tích Trận Này"**.
+- [x] **Trung tâm Cầu thủ (PlayerIntelligence):**
+  - Giao diện 2 cột chuẩn FotMob/Sofascore: Roster danh sách bên trái (hỗ trợ lọc theo vị trí FW, MF, DF, GK và tìm kiếm) + Khung Showcase bên phải.
+  - Hero profile banner: Avatar, số áo, tên, đội bóng, quốc tịch, nút **"⚡ Hỏi AI Phân Tích"** và **"⚔️ So Sánh Cầu Thủ"**.
+  - Lưới 6 chỉ số then chốt (Bàn thắng, Kiến tạo, xG, xA, Bàn/90, Kiến tạo/90) và tab chuyển đổi Radar đa trục vs Bản đồ dứt điểm (PitchShotMap).
+- [x] **Đấu trường So sánh Đối đầu (PlayerComparison):**
+  - Dual Player Cards (Xanh ngọc vs Xanh cyan), hỗ trợ đổi vị trí 2 cầu thủ nhanh chóng (`⇄ Đổi bên`).
+  - Nút **"⚡ Hỏi AI Đánh Giá So Sánh"** kết nối trực tiếp sang AI Analyst với prompt tự động.
+  - Thước đo đối đầu (Battle Meters): Hiển thị thanh tiến trình đối đầu theo từng chỉ số kèm vương miện 👑 cho bên vượt trội.
+  - Radar đối chiếu song song và Bảng thông số chi tiết.
+- [x] **Trợ lý AI Phân tích (AiAnalystChat & AiAnalystService):**
+  - Xóa bỏ triệt để việc rò rỉ endpoint kỹ thuật (`GET /api/v1/players`, `GET /api/v1/matches`, `GET /api/v1/system/status`).
+  - Lọc bỏ hoàn toàn các bảng debug (`query`, `status: DATA_UNAVAILABLE`, `dim_match / fact_match`).
+  - Nâng cấp AI Analyst tự động nhận diện tên 2 đội bóng từ câu hỏi (VD: Bahia vs Mirassol) để đưa ra báo cáo chiến thuật chuyên sâu đa chiều (tỷ số, thế trận, hiệu suất xG, phong độ đội bóng).
+  - Tự động cuộn mượt xuống tin nhắn mới nhất và cung cấp gợi ý câu hỏi tiếp theo hoàn toàn tự nhiên.
+- [x] **Build & Kiểm thử:** `npm --prefix apps/frontend run build` vượt qua 100% không cảnh báo lỗi.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 
 export default function AiAnalystChat({ initialQuery, initialMatchId, initialPlayerId }) {
@@ -6,16 +6,22 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
     {
       role: 'assistant',
       content:
-        'Xin chào! Tôi là Trợ lý AI Phân tích PitchPulse. Dữ liệu của tôi được trích xuất trực tiếp từ kho phân tích PostgreSQL/ClickHouse, đảm bảo độ chính xác và không bịa đặt số liệu.\n\nBạn có thể hỏi về các trận đấu, phong độ đội bóng, chỉ số cầu thủ, hoặc bấm nhanh các câu hỏi gợi ý bên dưới.',
+        'Xin chào! Tôi là Trợ lý AI Phân tích PitchPulse.\n\nTôi sẵn sàng hỗ trợ bạn phân tích chiến thuật, đánh giá phong độ các đội bóng, bóc tách chỉ số chuyên sâu (xG, xA, tần suất dứt điểm) hoặc so sánh hiệu suất cầu thủ từ nguồn dữ liệu thực tế.\n\nBạn có thể đặt câu hỏi tự do hoặc chọn nhanh các chủ đề phân tích bên dưới:',
       grounded_facts: [
-        'Dữ liệu lấy từ các trận đấu & sự kiện đã đồng bộ.',
-        'Hỗ trợ phân tích chuyên sâu bàn thắng, xG, đối đầu và phong độ.',
+        'Dữ liệu đối chiếu trực tiếp từ kho lưu trữ sự kiện và thống kê trận đấu chính thức.',
+        'Hỗ trợ phân tích chuyên sâu bàn thắng, xG, đối đầu và phong độ thực tế.',
       ],
-      data_source: 'PitchPulse Data Lakehouse',
+      data_source: 'Chỉ số phân tích xác thực',
+      suggested_questions: [
+        'Tổng quan kết quả các trận đấu gần nhất',
+        'Phân tích phong độ các đội bóng hàng đầu',
+        'Top cầu thủ có chỉ số xG ấn tượng nhất',
+      ],
     },
   ]);
   const [inputQuery, setInputQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
 
   const samplePrompts = [
     { label: '🏆 Tổng quan các giải đấu', query: 'Tổng quan các trận đấu và giải đấu gần nhất' },
@@ -23,6 +29,14 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
     { label: '📊 Phong độ các đội', query: 'Phân tích phong độ các đội bóng hàng đầu' },
     { label: '⚽ Lịch thi đấu hôm nay', query: 'Xem các trận đấu hôm nay' },
   ];
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
 
   const handleSend = async (queryText, matchId = null, playerId = null) => {
     const textToSend = queryText || inputQuery;
@@ -42,15 +56,45 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
       const res = await api.queryAiAnalyst(payload);
       const aiData = res.data;
 
+      // Filter raw developer endpoints or debug fields
+      const rawSuggestions = aiData.suggested_questions || [];
+      const cleanSuggestions = rawSuggestions.filter(
+        (q) => !q.startsWith('GET /') && !q.startsWith('/api') && !q.includes('http')
+      );
+
+      // Filter debug keys from statistics_table
+      let cleanTable = null;
+      if (aiData.statistics_table && aiData.intent !== 'DATA_UNAVAILABLE') {
+        const entries = Object.entries(aiData.statistics_table).filter(([k, v]) => {
+          const kl = k.toLowerCase();
+          const vl = String(v).toLowerCase();
+          return (
+            !kl.includes('query') &&
+            !kl.includes('status') &&
+            !kl.includes('endpoint') &&
+            !vl.includes('unavailable') &&
+            !vl.includes('http') &&
+            !vl.includes('/api/')
+          );
+        });
+        if (entries.length > 0) {
+          cleanTable = Object.fromEntries(entries);
+        }
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
           content: aiData.answer || 'Đã phân tích xong.',
           grounded_facts: aiData.grounded_facts || [],
-          statistics_table: aiData.statistics_table || null,
-          data_source: aiData.data_source || 'PostgreSQL Analytics',
-          suggested_questions: aiData.suggested_questions || [],
+          statistics_table: cleanTable,
+          data_source: 'Chỉ số phân tích xác thực',
+          suggested_questions: cleanSuggestions.length > 0 ? cleanSuggestions : [
+            'Phân tích phong độ các đội bóng hàng đầu',
+            'Xem các trận đấu hôm nay',
+            'Tổng quan các giải đấu',
+          ],
         },
       ]);
     } catch (err) {
@@ -59,9 +103,10 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
         ...prev,
         {
           role: 'assistant',
-          content: 'Không thể kết nối đến dịch vụ AI Analyst. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.',
+          content: 'Không thể kết nối đến máy chủ phân tích dữ liệu. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.',
           grounded_facts: [],
           data_source: 'Lỗi kết nối',
+          suggested_questions: [],
         },
       ]);
     } finally {
@@ -81,10 +126,10 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
       <div className="section-header" style={{ marginBottom: 16 }}>
         <div>
           <h1 className="section-title">
-            <span>⚡</span> Trợ Lý AI Phân Tích
+            <span>⚡</span> Trợ Lý AI Phân Tích PitchPulse
           </h1>
           <p className="section-subtitle">
-            Phân tích chiến thuật & dữ liệu bóng đá xác thực (Zero-Hallucination)
+            Hệ thống phân tích chiến thuật & dữ liệu bóng đá xác thực (Zero-Hallucination)
           </p>
         </div>
       </div>
@@ -111,19 +156,22 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
             <div key={index} className={`ai-bubble ${isUser ? 'user' : 'assistant'}`}>
               {!isUser && (
                 <div className="ai-bubble-label">
-                  <span>⚡ PitchPulse AI</span>
+                  <span>⚡ PitchPulse AI Analyst</span>
                   {m.data_source ? <span> · {m.data_source}</span> : null}
                 </div>
               )}
 
-              <div style={{ whiteSpace: 'pre-line', lineHeight: '1.6' }}>{m.content}</div>
+              <div className="ai-message-text" style={{ whiteSpace: 'pre-line', lineHeight: '1.65' }}>
+                {m.content}
+              </div>
 
+              {/* Grounded facts badge */}
               {m.grounded_facts && m.grounded_facts.length > 0 && (
                 <div className="grounded-box">
-                  <div className="grounded-badge">Dữ liệu nguồn xác thực</div>
-                  <ul style={{ paddingLeft: 18, color: 'var(--text-secondary)' }}>
+                  <div className="grounded-badge">🛡️ Nguồn số liệu xác thực</div>
+                  <ul style={{ paddingLeft: 18, margin: 0, color: 'var(--text-secondary)' }}>
                     {m.grounded_facts.map((fact, fIdx) => (
-                      <li key={fIdx} style={{ marginTop: 4 }}>
+                      <li key={fIdx} style={{ marginTop: 4, fontSize: '12.5px' }}>
                         {fact}
                       </li>
                     ))}
@@ -131,22 +179,25 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
                 </div>
               )}
 
-              {m.statistics_table && (
+              {/* Verified Metrics Table (Only when not empty and not debug) */}
+              {m.statistics_table && Object.keys(m.statistics_table).length > 0 && (
                 <div className="ai-metric-snapshot">
-                  <div className="ai-metric-title">Bảng thống kê chi tiết</div>
-                  <div className="ai-metric-row">
+                  <div className="ai-metric-title">📊 Bảng chỉ số đối chiếu</div>
+                  <div className="ai-metric-grid">
                     {Object.entries(m.statistics_table).map(([k, v]) => (
-                      <span key={k} style={{ color: 'var(--text-secondary)' }}>
-                        <strong style={{ color: '#fff' }}>{k}:</strong> {String(v)}
-                      </span>
+                      <div key={k} className="ai-metric-cell">
+                        <span className="metric-cell-label">{k}</span>
+                        <span className="metric-cell-value">{String(v)}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
 
+              {/* User-friendly followup suggestions */}
               {m.suggested_questions && m.suggested_questions.length > 0 && (
                 <div className="ai-followups">
-                  <span className="ai-followups-label">Câu hỏi tiếp theo có thể bạn quan tâm:</span>
+                  <span className="ai-followups-label">💡 Gợi ý câu hỏi tiếp theo:</span>
                   <div className="ai-followups-chips">
                     {m.suggested_questions.map((q, qIdx) => (
                       <button
@@ -168,9 +219,11 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
         {loading && (
           <div className="ai-loading">
             <span className="pulse-dot" />
-            <span>AI đang truy vấn dữ liệu và phân tích trận đấu…</span>
+            <span>AI đang truy vấn kho dữ liệu và tổng hợp phân tích…</span>
           </div>
         )}
+
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Chat Input Bar */}
@@ -184,7 +237,7 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
         <input
           type="text"
           className="chat-input"
-          placeholder="Nhập tên đội bóng, trận đấu hoặc câu hỏi phân tích…"
+          placeholder="Nhập tên đội bóng, trận đấu hoặc câu hỏi phân tích (VD: Phân tích Real Madrid, phong độ Man City...)"
           value={inputQuery}
           onChange={(e) => setInputQuery(e.target.value)}
           disabled={loading}

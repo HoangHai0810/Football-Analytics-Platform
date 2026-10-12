@@ -12,9 +12,9 @@ function dateKey(isoStr) {
   return `${y}-${m}-${day}`;
 }
 
-function formatDateTab(key) {
-  if (key === 'ALL') return 'Tất cả ngày';
-  if (key === 'unknown') return 'Không rõ ngày';
+function formatDateLabel(key) {
+  if (key === 'ALL') return 'Tất cả các trận';
+  if (key === 'unknown') return 'Khác';
   const d = new Date(`${key}T12:00:00`);
   if (isNaN(d)) return key;
 
@@ -27,13 +27,13 @@ function formatDateTab(key) {
   tomorrow.setDate(now.getDate() + 1);
   const tKey = dateKey(tomorrow.toISOString());
 
-  const weekdayShort = d.toLocaleDateString('vi-VN', { weekday: 'short' });
   const dayMonth = `${d.getDate()}/${d.getMonth() + 1}`;
+  const weekdayShort = d.toLocaleDateString('vi-VN', { weekday: 'short' });
 
-  if (key === todayKey) return `Hôm nay (${dayMonth})`;
-  if (key === yKey) return `Hôm qua (${dayMonth})`;
-  if (key === tKey) return `Ngày mai (${dayMonth})`;
-  return `${weekdayShort} ${dayMonth}`;
+  if (key === todayKey) return `Hôm nay · ${dayMonth}`;
+  if (key === yKey) return `Hôm qua · ${dayMonth}`;
+  if (key === tKey) return `Ngày mai · ${dayMonth}`;
+  return `${weekdayShort} · ${dayMonth}`;
 }
 
 function formatKickoff(isoStr) {
@@ -48,7 +48,7 @@ function formatKickoff(isoStr) {
   };
 }
 
-function TeamCrest({ src, name, size = 36 }) {
+function TeamCrest({ src, name, size = 32 }) {
   const [err, setErr] = useState(false);
   const initials = (name || '?')
     .split(/\s+/)
@@ -117,7 +117,7 @@ export default function MatchCenter({ onAskAi }) {
         const compRes = await api.getCompetitions().catch(() => ({ data: [] }));
         setCompetitions(compRes.data || []);
 
-        const params = { limit: 200 };
+        const params = { limit: 250 };
         if (selectedComp !== 'ALL') params.competition_id = selectedComp;
         if (statusFilter !== 'ALL') params.status = statusFilter;
 
@@ -135,7 +135,7 @@ export default function MatchCenter({ onAskAi }) {
 
         setMatches(list);
 
-        // Auto-select the most relevant date if currently ALL and dates exist
+        // Auto-select date with matches closest to today
         const now = new Date();
         const todayK = dateKey(now.toISOString());
         const dateKeysSet = new Set(list.map((m) => dateKey(m.match_date)));
@@ -147,7 +147,7 @@ export default function MatchCenter({ onAskAi }) {
         }
       } catch (err) {
         console.error(err);
-        setError('Không thể tải dữ liệu trận đấu. Vui lòng thử lại sau.');
+        setError('Không thể tải dữ liệu trận đấu. Vui lòng kiểm tra lại kết nối.');
       } finally {
         setLoading(false);
       }
@@ -155,20 +155,43 @@ export default function MatchCenter({ onAskAi }) {
     loadData();
   }, [selectedComp, statusFilter]);
 
-  // Extract distinct dates with counts
-  const availableDates = useMemo(() => {
-    const counts = new Map();
+  // Extract distinct dates sorted CHRONOLOGICALLY (past -> today -> future, left to right)
+  const chronologicalDates = useMemo(() => {
+    const set = new Set();
     for (const m of matches) {
       const k = dateKey(m.match_date);
       if (k !== 'unknown') {
-        counts.set(k, (counts.get(k) || 0) + 1);
+        set.add(k);
       }
     }
-    const sorted = [...counts.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-    return sorted;
+    // Sort ascending (earliest on left, latest on right)
+    return [...set].sort((a, b) => a.localeCompare(b));
   }, [matches]);
 
-  // Filter matches by date and search query
+  // Handle previous / next date navigation
+  const handlePrevDate = () => {
+    if (selectedDate === 'ALL') {
+      if (chronologicalDates.length > 0) setSelectedDate(chronologicalDates[0]);
+      return;
+    }
+    const idx = chronologicalDates.indexOf(selectedDate);
+    if (idx > 0) {
+      setSelectedDate(chronologicalDates[idx - 1]);
+    }
+  };
+
+  const handleNextDate = () => {
+    if (selectedDate === 'ALL') {
+      if (chronologicalDates.length > 0) setSelectedDate(chronologicalDates[chronologicalDates.length - 1]);
+      return;
+    }
+    const idx = chronologicalDates.indexOf(selectedDate);
+    if (idx >= 0 && idx < chronologicalDates.length - 1) {
+      setSelectedDate(chronologicalDates[idx + 1]);
+    }
+  };
+
+  // Filter matches by selected date and search text
   const filteredMatches = useMemo(() => {
     let result = matches;
     if (selectedDate !== 'ALL') {
@@ -187,7 +210,7 @@ export default function MatchCenter({ onAskAi }) {
     return result;
   }, [matches, selectedDate, searchQuery]);
 
-  // Group filtered matches by LEAGUE / TOURNAMENT (Sofascore / FotMob pattern)
+  // Group filtered matches by LEAGUE / COMPETITION
   const leagueGroups = useMemo(() => {
     const groups = new Map();
     for (const m of filteredMatches) {
@@ -206,14 +229,14 @@ export default function MatchCenter({ onAskAi }) {
 
   return (
     <div className="match-center-container">
-      {/* Top Banner & Title */}
+      {/* Top Banner & Header */}
       <div className="match-center-header">
         <div>
           <h1 className="section-title">
-            <span>⚽</span> Lịch & Kết Quả Trận Đấu
+            <span>⚽</span> Lịch Thi Đấu & Kết Quả
           </h1>
           <p className="section-subtitle">
-            Cập nhật tỷ số, xG và dữ liệu sự kiện từ các giải đấu hàng đầu
+            Cập nhật tỷ số trực tiếp, thông số kỳ vọng bàn thắng (xG) và phân tích trận đấu
           </p>
         </div>
 
@@ -221,40 +244,58 @@ export default function MatchCenter({ onAskAi }) {
         <div className="match-search-box">
           <input
             type="search"
-            placeholder="Tìm theo đội, giải hoặc sân…"
+            placeholder="Tìm theo tên đội hoặc giải…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="search-input"
-            style={{ width: '260px' }}
+            style={{ width: '250px' }}
           />
         </div>
       </div>
 
-      {/* Date Ribbon / Bar (FotMob / Sofascore calendar strip) */}
-      <div className="date-ribbon-bar">
+      {/* Chronological Date Ribbon Strip (FotMob / Sofascore standard) */}
+      <div className="date-navigation-wrapper">
         <button
-          className={`date-ribbon-btn ${selectedDate === 'ALL' ? 'active' : ''}`}
-          onClick={() => setSelectedDate('ALL')}
+          className="date-nav-arrow"
+          onClick={handlePrevDate}
+          title="Ngày trước đó"
+          disabled={selectedDate === 'ALL' || chronologicalDates.indexOf(selectedDate) === 0}
         >
-          <span className="date-label">Tất cả ngày</span>
-          <span className="date-count">{matches.length}</span>
+          ‹
         </button>
 
-        {availableDates.slice(0, 14).map(([dKey, cnt]) => (
+        <div className="date-ribbon-bar">
           <button
-            key={dKey}
-            className={`date-ribbon-btn ${selectedDate === dKey ? 'active' : ''}`}
-            onClick={() => setSelectedDate(dKey)}
+            className={`date-ribbon-btn ${selectedDate === 'ALL' ? 'active' : ''}`}
+            onClick={() => setSelectedDate('ALL')}
           >
-            <span className="date-label">{formatDateTab(dKey)}</span>
-            <span className="date-count">{cnt}</span>
+            <span className="date-label">Tất cả các trận</span>
           </button>
-        ))}
+
+          {chronologicalDates.map((dKey) => (
+            <button
+              key={dKey}
+              className={`date-ribbon-btn ${selectedDate === dKey ? 'active' : ''}`}
+              onClick={() => setSelectedDate(dKey)}
+            >
+              <span className="date-label">{formatDateLabel(dKey)}</span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          className="date-nav-arrow"
+          onClick={handleNextDate}
+          title="Ngày kế tiếp"
+          disabled={selectedDate === 'ALL' || chronologicalDates.indexOf(selectedDate) === chronologicalDates.length - 1}
+        >
+          ›
+        </button>
       </div>
 
       {/* Filter Toolbar: Competitions & Status */}
       <div className="match-filter-toolbar">
-        {/* Status Pills */}
+        {/* Status Filter Pills */}
         <div className="status-filter-pills">
           {[
             { id: 'ALL', label: 'Tất cả' },
@@ -272,7 +313,7 @@ export default function MatchCenter({ onAskAi }) {
           ))}
         </div>
 
-        {/* Competition Dropdown / Quick Select */}
+        {/* Competition Dropdown */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Giải đấu:</span>
           <select
@@ -291,7 +332,7 @@ export default function MatchCenter({ onAskAi }) {
         </div>
       </div>
 
-      {/* Matches Content Area */}
+      {/* Match Content List */}
       {loading ? (
         <div className="empty-state">
           <div className="empty-state-title">Đang đồng bộ dữ liệu trận đấu…</div>
@@ -302,9 +343,9 @@ export default function MatchCenter({ onAskAi }) {
         </div>
       ) : filteredMatches.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-title">Không có trận đấu nào</div>
+          <div className="empty-state-title">Không có trận đấu nào trong ngày này</div>
           <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
-            Không tìm thấy trận đấu phù hợp trong ngày hoặc bộ lọc đã chọn. Hãy chọn "Tất cả ngày" hoặc đặt lại bộ lọc.
+            Hãy chọn tab <strong>"Tất cả các trận"</strong> hoặc chọn ngày khác để theo dõi lịch thi đấu.
           </div>
         </div>
       ) : (
@@ -334,6 +375,7 @@ export default function MatchCenter({ onAskAi }) {
                       key={m.match_id}
                       className={`match-row-card ${isLive ? 'live-border' : ''}`}
                       onClick={() => setSelectedMatch(m)}
+                      title="Bấm để xem chi tiết trận đấu và phân tích AI"
                     >
                       {/* Left: Kickoff / Status */}
                       <div className="match-row-time">
@@ -342,7 +384,7 @@ export default function MatchCenter({ onAskAi }) {
                         ) : isFinished ? (
                           <span className="finished-status-text">FT</span>
                         ) : (
-                          <span className="kickoff-time-text">{kick.time || kick.date || 'Sắp đá'}</span>
+                          <span className="kickoff-time-text">{kick.time || 'Sắp đá'}</span>
                         )}
                         {kick.date && <span className="match-row-date">{kick.date}</span>}
                       </div>

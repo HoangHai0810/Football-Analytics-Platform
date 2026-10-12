@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import RadarChart from './RadarChart';
 import PitchShotMap from './PitchShotMap';
 
-function PlayerAvatar({ src, name, size = 48 }) {
+function PlayerAvatar({ src, name, size = 52 }) {
   const [err, setErr] = useState(false);
   const initials = (name || '?')
     .split(/\s+/)
@@ -22,8 +22,16 @@ function PlayerAvatar({ src, name, size = 48 }) {
         style={{
           width: size,
           height: size,
-          borderRadius: size > 60 ? '50%' : 10,
-          fontSize: size * 0.32,
+          borderRadius: size > 64 ? '50%' : 12,
+          fontSize: size * 0.35,
+          fontWeight: 800,
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2))',
+          border: '1px solid rgba(16, 185, 129, 0.4)',
+          color: '#34d399',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
         }}
         title={name}
       >
@@ -39,9 +47,9 @@ function PlayerAvatar({ src, name, size = 48 }) {
       style={{
         width: size,
         height: size,
-        borderRadius: size > 60 ? '50%' : 10,
+        borderRadius: size > 64 ? '50%' : 12,
         objectFit: 'cover',
-        border: size > 60 ? '3px solid #10b981' : 'none',
+        border: size > 64 ? '3px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
         background: 'rgba(15,23,42,0.8)',
         flexShrink: 0,
       }}
@@ -50,18 +58,25 @@ function PlayerAvatar({ src, name, size = 48 }) {
   );
 }
 
-function StatBox({ value, label, color }) {
+function StatTile({ value, label, color = '#ffffff', sub = null }) {
   return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '22px', fontWeight: 800, color: color || '#fff', lineHeight: 1 }}>
+    <div className="stat-tile">
+      <div className="stat-tile-value" style={{ color }}>
         {value ?? '—'}
       </div>
-      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{label}</div>
+      <div className="stat-tile-label">{label}</div>
+      {sub && <div className="stat-tile-sub">{sub}</div>}
     </div>
   );
 }
 
-const POSITIONS = ['ALL', 'GK', 'DF', 'MF', 'FW'];
+const POSITIONS = [
+  { id: 'ALL', label: 'Tất cả' },
+  { id: 'FW', label: 'Tiền đạo (FW)' },
+  { id: 'MF', label: 'Tiền vệ (MF)' },
+  { id: 'DF', label: 'Hậu vệ (DF)' },
+  { id: 'GK', label: 'Thủ môn (GK)' },
+];
 
 export default function PlayerIntelligence({ onComparePlayer, onAskAi }) {
   const [players, setPlayers] = useState([]);
@@ -101,7 +116,7 @@ export default function PlayerIntelligence({ onComparePlayer, onAskAi }) {
         }
       } catch (err) {
         console.error(err);
-        setListError('Không tải được danh sách cầu thủ.');
+        setListError('Không tải được danh sách cầu thủ. Vui lòng kiểm tra kết nối API.');
         setPlayers([]);
       } finally {
         setLoading(false);
@@ -130,169 +145,199 @@ export default function PlayerIntelligence({ onComparePlayer, onAskAi }) {
     }
   };
 
-  const TABS = [
-    { id: 'radar', label: 'Radar' },
-    { id: 'shotmap', label: `Bản đồ sút (${playerShots.length})` },
-  ];
+  const handleAskAiAboutPlayer = () => {
+    if (onAskAi && selectedPlayer) {
+      const query = `Phân tích chuyên sâu phong độ, kỹ năng và hiệu suất thi đấu của cầu thủ ${selectedPlayer.name} (${selectedPlayer.team_name || 'Đội hình chính'})`;
+      onAskAi(query, null, selectedPlayer.player_id);
+    }
+  };
 
   return (
-    <div>
+    <div className="player-intelligence-container">
+      {/* Top Header & Search Bar */}
       <div className="section-header">
         <div>
-          <h1 className="section-title">Cầu thủ</h1>
+          <h1 className="section-title">
+            <span>👤</span> Trung Tâm Dữ Liệu Cầu Thủ
+          </h1>
           <p className="section-subtitle">
-            {players.length > 0 ? `${players.length} cầu thủ` : 'Tìm theo tên hoặc đội'}
+            Hồ sơ năng lực, bản đồ nhiệt dứt điểm và phân tích radar đa trục
           </p>
         </div>
 
-        <div className="filter-bar">
+        {/* Filter & Search Bar */}
+        <div className="filter-bar" style={{ flexWrap: 'wrap' }}>
           <input
             type="search"
-            placeholder="Tìm cầu thủ hoặc đội…"
+            placeholder="Tìm theo tên cầu thủ hoặc đội…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="search-input"
+            style={{ width: '260px' }}
           />
-          {POSITIONS.map((pos) => (
-            <button
-              key={pos}
-              className={`filter-btn ${positionFilter === pos ? 'active' : ''}`}
-              onClick={() => setPositionFilter(pos)}
-            >
-              {pos === 'ALL' ? 'Tất cả' : pos}
-            </button>
-          ))}
+
+          <div className="position-pills">
+            {POSITIONS.map((p) => (
+              <button
+                key={p.id}
+                className={`filter-btn ${positionFilter === p.id ? 'active' : ''}`}
+                onClick={() => setPositionFilter(p.id)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="empty-state">Đang tải danh sách cầu thủ…</div>
+        <div className="empty-state">Đang tải cơ sở dữ liệu cầu thủ…</div>
       ) : listError ? (
         <div className="empty-state" style={{ color: 'var(--crimson-danger)' }}>{listError}</div>
       ) : players.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-title">Không có cầu thủ</div>
-          <div>
-            API đang trống hoặc chưa đồng bộ đội hình. Chạy rolling sync với FOOTBALL_DATA_API_KEY
-            (hoặc full backfill) rồi thử lại.
+          <div className="empty-state-title">Không tìm thấy cầu thủ</div>
+          <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
+            Thử nhập từ khóa khác hoặc đặt lại bộ lọc vị trí về "Tất cả".
           </div>
         </div>
       ) : (
-        <div className="player-layout">
-          <div className="player-list-pane">
-            {players.map((p) => {
-              const isSelected = selectedPlayer?.player_id === p.player_id;
-              return (
-                <div
-                  key={p.player_id}
-                  className={`card player-card ${isSelected ? 'selected' : ''}`}
-                  onClick={() => selectPlayer(p)}
-                >
-                  <div className="player-card-header">
-                    <PlayerAvatar src={p.avatar_url} name={p.name} size={48} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="player-name-text" style={{ fontSize: '14px' }}>{p.name}</div>
-                      <div className="player-meta-info">
-                        {p.position ? <span className="position-tag">{p.position}</span> : null}
-                        <span className="truncate">{p.team_name || '—'}</span>
+        <div className="player-layout-grid">
+          {/* Left: Player Roster Feed */}
+          <div className="player-roster-pane">
+            <div className="roster-header">
+              <span>Danh sách ({players.length})</span>
+            </div>
+            <div className="roster-list-scroll">
+              {players.map((p) => {
+                const isSelected = selectedPlayer?.player_id === p.player_id;
+                return (
+                  <div
+                    key={p.player_id}
+                    className={`player-roster-card ${isSelected ? 'active' : ''}`}
+                    onClick={() => selectPlayer(p)}
+                  >
+                    <PlayerAvatar src={p.avatar_url} name={p.name} size={42} />
+                    <div className="roster-card-info">
+                      <div className="roster-player-name">{p.name}</div>
+                      <div className="roster-player-meta">
+                        {p.position && <span className="position-badge">{p.position}</span>}
+                        <span className="truncate">{p.team_name || 'Đội tuyển'}</span>
                         {p.jersey_number > 0 && <span>#{p.jersey_number}</span>}
                       </div>
                     </div>
                   </div>
-                  {p.nationality ? (
-                    <div className="player-card-footer">{p.nationality}</div>
-                  ) : null}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
+          {/* Right: Player Showcase Profile */}
           {selectedPlayer && (
-            <div className="card player-detail-pane">
-              <div className="player-detail-header">
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                  <PlayerAvatar src={selectedPlayer.avatar_url} name={selectedPlayer.name} size={80} />
-                  <div>
-                    <h2 className="player-detail-name">{selectedPlayer.name}</h2>
-                    <div className="player-meta-info" style={{ marginTop: 6 }}>
-                      {selectedPlayer.position ? (
-                        <span className="position-tag">{selectedPlayer.position}</span>
-                      ) : null}
-                      <span>{selectedPlayer.team_name || '—'}</span>
-                      {selectedPlayer.jersey_number > 0 && <span>#{selectedPlayer.jersey_number}</span>}
-                      {selectedPlayer.nationality && <span>{selectedPlayer.nationality}</span>}
+            <div className="player-showcase-pane">
+              {/* Hero Profile Banner */}
+              <div className="player-hero-banner">
+                <div className="hero-avatar-group">
+                  <PlayerAvatar src={selectedPlayer.avatar_url} name={selectedPlayer.name} size={84} />
+                  <div className="hero-text-group">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <h2 className="hero-player-name">{selectedPlayer.name}</h2>
+                      {selectedPlayer.jersey_number > 0 && (
+                        <span className="jersey-pill">#{selectedPlayer.jersey_number}</span>
+                      )}
+                    </div>
+
+                    <div className="hero-sub-meta">
+                      {selectedPlayer.position && (
+                        <span className="position-tag-accent">{selectedPlayer.position}</span>
+                      )}
+                      <span className="hero-team-text">{selectedPlayer.team_name || 'Biên chế câu lạc bộ'}</span>
+                      {selectedPlayer.nationality && (
+                        <span>🌍 {selectedPlayer.nationality}</span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  {onAskAi && (
-                    <button
-                      className="filter-btn"
-                      onClick={() => onAskAi(`Phân tích phong độ và chỉ số của cầu thủ ${selectedPlayer.name}`, null, selectedPlayer.player_id)}
-                      style={{ background: 'rgba(139, 92, 246, 0.15)', borderColor: 'rgba(139, 92, 246, 0.4)', color: '#c084fc' }}
-                    >
-                      ⚡ Hỏi AI
-                    </button>
-                  )}
+                {/* Quick Action Buttons */}
+                <div className="hero-action-btns">
+                  <button className="ask-ai-match-btn" onClick={handleAskAiAboutPlayer}>
+                    <span>⚡</span>
+                    <span>Hỏi AI Phân Tích</span>
+                  </button>
                   <button
                     className="filter-btn active"
                     onClick={() => onComparePlayer(selectedPlayer.player_id)}
+                    style={{ padding: '10px 18px', fontWeight: 700 }}
                   >
-                    So sánh
+                    ⚔️ So Sánh
                   </button>
                 </div>
               </div>
 
+              {/* Stats & Visual Analytics */}
               {statsLoading ? (
-                <div className="empty-state" style={{ padding: 40 }}>Đang tải thống kê…</div>
+                <div className="empty-state" style={{ padding: 48 }}>Đang truy xuất thông số mùa giải…</div>
               ) : playerStats ? (
                 <>
-                  <div className="stats-grid">
-                    <StatBox value={playerStats.goals} label="Bàn thắng" color="#10b981" />
-                    <StatBox value={playerStats.assists} label="Kiến tạo" color="#38bdf8" />
-                    <StatBox value={playerStats.matches_played} label="Trận" />
-                    <StatBox
-                      value={playerStats.xg != null ? Number(playerStats.xg).toFixed(2) : '—'}
-                      label="xG"
-                    />
-                    <StatBox
-                      value={playerStats.goals_per_90 != null ? Number(playerStats.goals_per_90).toFixed(2) : '—'}
-                      label="Bàn/90'"
-                      color="#f59e0b"
-                    />
-                    <StatBox value={playerStats.shots} label="Sút" />
+                  {/* Primary Performance Metric Tiles */}
+                  <div className="stat-tiles-grid">
+                    <StatTile value={playerStats.goals} label="Bàn Thắng" color="#10b981" sub={`xG: ${(playerStats.xg || 0).toFixed(2)}`} />
+                    <StatTile value={playerStats.assists} label="Kiến Tạo" color="#38bdf8" sub={`xA: ${(playerStats.xa || 0).toFixed(2)}`} />
+                    <StatTile value={playerStats.matches_played} label="Trận Đấu" color="#f8fafc" sub={`${playerStats.minutes || 0} phút`} />
+                    <StatTile value={playerStats.goals_per_90 != null ? Number(playerStats.goals_per_90).toFixed(2) : '—'} label="Bàn / 90'" color="#fbbf24" />
+                    <StatTile value={playerStats.assists_per_90 != null ? Number(playerStats.assists_per_90).toFixed(2) : '—'} label="Kiến Tạo / 90'" color="#a78bfa" />
+                    <StatTile value={playerStats.shots || 0} label="Tổng Cú Sút" color="#f8fafc" sub={`Trúng đích: ${playerStats.shots_on_target || 0}`} />
                   </div>
 
-                  <div className="tab-row">
-                    {TABS.map((tab) => (
-                      <button
-                        key={tab.id}
-                        className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => setActiveTab(tab.id)}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
+                  {/* Visual Analysis View Switcher */}
+                  <div className="tab-row" style={{ marginTop: '20px' }}>
+                    <button
+                      className={`tab-btn ${activeTab === 'radar' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('radar')}
+                    >
+                      📊 Biểu Đồ Radar 6 Trục Kỹ Năng
+                    </button>
+                    <button
+                      className={`tab-btn ${activeTab === 'shotmap' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('shotmap')}
+                    >
+                      🎯 Bản Đồ Dứt Điểm Shot Map ({playerShots.length})
+                    </button>
                   </div>
 
-                  {activeTab === 'radar' ? (
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                      <RadarChart
-                        stats1={playerStats}
-                        name1={selectedPlayer.name}
-                        color1="#10b981"
-                        size={340}
-                      />
-                    </div>
-                  ) : (
-                    <PitchShotMap shots={playerShots} playerName={selectedPlayer.name} />
-                  )}
+                  {/* Visual Display */}
+                  <div className="visual-analytics-card">
+                    {activeTab === 'radar' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '14px 0' }}>
+                        <RadarChart
+                          stats1={playerStats}
+                          name1={selectedPlayer.name}
+                          color1="#10b981"
+                          size={360}
+                        />
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                          Trục điểm chuẩn hóa theo chuẩn vị trí từ dữ liệu thực tế (thang điểm 100)
+                        </div>
+                      </div>
+                    ) : (
+                      <PitchShotMap shots={playerShots} playerName={selectedPlayer.name} />
+                    )}
+                  </div>
                 </>
               ) : (
-                <div className="empty-state" style={{ padding: 48 }}>
-                  <div className="empty-state-title">Chưa có thống kê</div>
-                  <div>Cầu thủ này chưa có dữ liệu mùa giải trong kho phân tích.</div>
+                <div className="empty-state" style={{ padding: 48, background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-lg)' }}>
+                  <div className="empty-state-title">Hồ Sơ Cầu Thủ Đã Ghi Nhận</div>
+                  <div style={{ marginTop: '8px', color: 'var(--text-secondary)', maxWidth: '500px', margin: '8px auto 0 auto' }}>
+                    Cầu thủ <strong>{selectedPlayer.name}</strong> đã có tên trong danh sách thi đấu của {selectedPlayer.team_name || 'câu lạc bộ'}.
+                    Thống kê sự kiện chi tiết mùa giải đang được hoàn thiện khi trận đấu diễn ra.
+                  </div>
+                  <div style={{ marginTop: '16px' }}>
+                    <button className="ask-ai-match-btn" onClick={handleAskAiAboutPlayer} style={{ margin: '0 auto' }}>
+                      <span>⚡</span>
+                      <span>Hỏi AI Nhận Định Về Cầu Thủ Này</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

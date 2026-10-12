@@ -37,7 +37,10 @@ export default function App() {
         )}
 
         {activeTab === 'compare' && (
-          <PlayerComparison initialPlayerId={comparedPlayerId} />
+          <PlayerComparison
+            initialPlayerId={comparedPlayerId}
+            onAskAi={handleAskAi}
+          />
         )}
 
         {activeTab === 'ai-analyst' && (
