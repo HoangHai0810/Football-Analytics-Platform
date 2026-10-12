@@ -29,6 +29,14 @@ export default function PitchShotMap({ shots = [], playerName = 'Player' }) {
     }
   };
 
+  const OUTCOME_LABELS = {
+    ALL: 'Tất cả',
+    GOAL: 'Vào lưới',
+    SAVED: 'Cản phá',
+    BLOCKED: 'Bị chặn',
+    MISSED: 'Ra ngoài',
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {/* Top summary stats bar */}
@@ -44,23 +52,23 @@ export default function PitchShotMap({ shots = [], playerName = 'Player' }) {
       >
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '18px', fontWeight: 800, color: '#fff' }}>{totalShots}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total Shots</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Tổng cú sút</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '18px', fontWeight: 800, color: '#10b981' }}>{goals}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Goals Scored</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Bàn thắng</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '18px', fontWeight: 800, color: '#38bdf8' }}>{totalXg.toFixed(2)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total xG</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Tổng xG</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '18px', fontWeight: 800, color: '#fbbf24' }}>{xgPerShot.toFixed(2)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>xG / Shot</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>xG / Cú sút</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '18px', fontWeight: 800, color: '#c084fc' }}>{conversionRate.toFixed(1)}%</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Conversion</div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Tỷ lệ thành bàn</div>
         </div>
       </div>
 
@@ -81,7 +89,7 @@ export default function PitchShotMap({ shots = [], playerName = 'Player' }) {
                 cursor: 'pointer'
               }}
             >
-              {f}
+              {OUTCOME_LABELS[f] || f}
             </button>
           ))}
         </div>
@@ -89,22 +97,28 @@ export default function PitchShotMap({ shots = [], playerName = 'Player' }) {
         <div style={{ display: 'flex', gap: '14px', fontSize: '12px', alignItems: 'center' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981', boxShadow: '0 0 6px #10b981' }} />
-            Goal
+            Vào lưới
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#06b6d4' }} />
-            Saved
+            Cản phá
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
-            Blocked
+            Bị chặn
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
-            Missed
+            Ra ngoài
           </span>
         </div>
       </div>
+
+      {shots.length === 0 && (
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', fontStyle: 'italic' }}>
+          Chưa có sự kiện cú sút nào được ghi nhận cho cầu thủ này.
+        </div>
+      )}
 
       {/* Pitch Canvas (Attacking Half: x: 60 to 120, y: 0 to 80) */}
       <div className="pitch-container">
@@ -267,18 +281,18 @@ export default function PitchShotMap({ shots = [], playerName = 'Player' }) {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
               <span style={{ fontWeight: 700, color: getOutcomeColor(hoveredShot.outcome) }}>
-                {hoveredShot.outcome}
+                {OUTCOME_LABELS[hoveredShot.outcome] || hoveredShot.outcome}
               </span>
-              <span style={{ color: 'var(--text-muted)' }}>Min: {hoveredShot.minute}'</span>
+              <span style={{ color: 'var(--text-muted)' }}>Phút: {hoveredShot.minute}'</span>
             </div>
             <div style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}>
               xG: {hoveredShot.xg?.toFixed(2)}
             </div>
             <div style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Part: {hoveredShot.body_part || 'FOOT'} | {hoveredShot.situation || 'OPEN_PLAY'}
+              Vị trí: {hoveredShot.body_part || 'Chân'} | {hoveredShot.situation || 'Bóng sống'}
             </div>
             <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>
-              Coords: ({hoveredShot.x?.toFixed(1)}m, {hoveredShot.y?.toFixed(1)}m)
+              Tọa độ: ({hoveredShot.x?.toFixed(1)}m, {hoveredShot.y?.toFixed(1)}m)
             </div>
           </div>
         )}

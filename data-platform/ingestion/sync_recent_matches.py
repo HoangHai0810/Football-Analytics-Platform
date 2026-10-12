@@ -558,35 +558,56 @@ def sync_via_football_data_org(cur, conn, api_key: str):
 
         conn.commit()
 
-        # Sync squads for teams seen in this window.
-        print(
-            f"👥 Syncing squads for "
-            f"{len(team_ids)} team(s)..."
-        )
+        # Query teams that already have full rosters in database to avoid unnecessary API calls
+        cur.execute("""
+            SELECT team_id, count(*)
+            FROM dim_player
+            WHERE team_id = ANY(%s)
+            GROUP BY team_id
+        """, (list(team_ids),))
+        existing_roster_counts = dict(cur.fetchall())
+
+        teams_needing_sync = [
+            tid for tid in sorted(team_ids)
+            if existing_roster_counts.get(tid, 0) < 11
+        ]
+
+        MAX_SQUAD_SYNCS = int(os.getenv("MAX_SQUAD_SYNCS_PER_RUN", "30"))
+        teams_to_process = teams_needing_sync[:MAX_SQUAD_SYNCS]
 
         total_players = 0
-
-        for i, tid in enumerate(sorted(team_ids)):
-            n = sync_team_squad(
-                cur,
-                client,
-                tid,
-                "",
+        if not teams_needing_sync:
+            print(
+                f"✅ All {len(team_ids)} teams already have squads in database. Skipping squad API calls."
+            )
+        else:
+            print(
+                f"👥 Syncing squads for {len(teams_to_process)}/{len(teams_needing_sync)} team(s) needing rosters "
+                f"({len(team_ids) - len(teams_needing_sync)} already populated, capped at {MAX_SQUAD_SYNCS}/run)..."
             )
 
-            total_players += n
+            with httpx.Client(headers=headers, timeout=30.0) as squad_client:
+                for i, tid in enumerate(teams_to_process):
+                    n = sync_team_squad(
+                        cur,
+                        squad_client,
+                        tid,
+                        "",
+                    )
 
-            if i < len(team_ids) - 1:
-                time.sleep(6.5)
+                    total_players += n
 
-            if (i + 1) % 5 == 0:
-                conn.commit()
-                print(
-                    f"  … {i + 1}/{len(team_ids)} teams, "
-                    f"{total_players} players so far"
-                )
+                    if i < len(teams_to_process) - 1:
+                        time.sleep(6.5)
 
-        conn.commit()
+                    if (i + 1) % 5 == 0:
+                        conn.commit()
+                        print(
+                            f"  … {i + 1}/{len(teams_to_process)} teams, "
+                            f"{total_players} players so far"
+                        )
+
+            conn.commit()
 
         print(
             f"✅ Synced {synced_count} match(es), "
@@ -620,15 +641,26 @@ def backfill_players_from_statsbomb_lineups(cur, conn, max_matches: int = 30):
         except Exception as e:
             print(f"  ⚠️ lineups {match_id}: {e}")
             continue
-        for _, df_lineup in lineups.items():
+        for lineup_team_id, df_lineup in lineups.items():
+            try:
+                lineup_tid = int(lineup_team_id)
+            except (ValueError, TypeError):
+                lineup_tid = 0
+
             for _, p_row in df_lineup.iterrows():
                 pid = int(p_row["player_id"])
                 pname = str(p_row.get("player_name") or p_row.get("player_nickname") or "").strip()
                 if not pid or not pname:
                     continue
-                p_country = str(p_row.get("country") or "").strip()
+
+                raw_country = p_row.get("country", "")
+                if isinstance(raw_country, dict):
+                    p_country = str(raw_country.get("name") or "").strip()
+                else:
+                    p_country = str(raw_country or "").strip()
                 if p_country.lower() in ("nan", "none"):
                     p_country = ""
+
                 p_jersey = int(p_row.get("jersey_number") or 0)
                 positions_list = p_row.get("positions")
                 pos_short = ""
@@ -642,7 +674,7 @@ def backfill_players_from_statsbomb_lineups(cur, conn, max_matches: int = 30):
                         pos_short = "DF"
                     elif "Goalkeeper" in pos_name:
                         pos_short = "GK"
-                upsert_player(cur, pid, pname, None, p_country, pos_short, p_jersey, 0)
+                upsert_player(cur, pid, pname, None, p_country, pos_short, p_jersey, lineup_tid)
                 total += 1
         conn.commit()
     print(f"✅ Player backfill upserts: {total}")

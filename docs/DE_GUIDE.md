@@ -271,3 +271,15 @@ events = sb.events(match_id=7430)
 - SQL fix: `round(cast(sum(xg) as numeric), 2)` để cast đúng kiểu PostgreSQL
 - Fix alias `awt` cho `dim_team` away team trong match query
 
+### 2026-10-12 — Production Polish & Pipeline Robustness
+
+**`sync_recent_matches.py`:**
+- **Fix httpx client closure error:** Sửa lỗi `Cannot send a request, as the client has been closed` khi sync squad 179 đội bằng cách bao bọc squad loop trong khối `with httpx.Client(...) as squad_client:` độc lập.
+- **Tối ưu hóa rate limit & runtime:** Kiểm tra trước số lượng cầu thủ hiện có trong `dim_player` theo `team_id`. Bỏ qua các đội đã có đủ đội hình (>= 11 cầu thủ). Giới hạn batch sync tối đa 30 đội/lần chạy (`MAX_SQUAD_SYNCS_PER_RUN`), tránh chạm rate limit free tier của football-data.org (10 req/min) và tránh timeout pipeline trên GitHub Actions.
+- **Fix StatsBomb lineup backfill:** Chuẩn hóa `lineup_team_id` từ key dict StatsBomb, xử lý an toàn `country` dạng dict hoặc string, gán đúng `team_id` vào `dim_player`.
+
+**Frontend (`PitchShotMap.jsx`):**
+- Việt hóa toàn diện chỉ số: Tổng cú sút, Bàn thắng, Tổng xG, xG/cú sút, Tỷ lệ thành bàn.
+- Việt hóa bộ lọc & chú giải (Vào lưới, Cản phá, Bị chặn, Ra ngoài) và tooltip chi tiết.
+- Hiển thị thông báo thân thiện khi cầu thủ chưa có dữ liệu tọa độ sự kiện cú sút.
+
