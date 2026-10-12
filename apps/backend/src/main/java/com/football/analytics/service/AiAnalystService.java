@@ -1,5 +1,7 @@
 package com.football.analytics.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.football.analytics.dto.AiAnalysisRequest;
 import com.football.analytics.dto.AiAnalysisResponse;
 import com.football.analytics.model.Player;
@@ -7,39 +9,63 @@ import com.football.analytics.model.PlayerSeasonStats;
 import com.football.analytics.repository.PostgresRepository;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 
 /**
- * AI Analyst — data-backed only. Never invents stats.
+ * AI Analyst — Grounded football data analytics with LLM synthesis support.
+ * Data from PostgreSQL / ClickHouse is the single source of truth.
  */
 @Service
 public class AiAnalystService {
     private final PostgresRepository postgresRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AiAnalystService(PostgresRepository postgresRepository) {
         this.postgresRepository = postgresRepository;
     }
+
     public AiAnalysisResponse analyze(AiAnalysisRequest request) {
         String query = request.getQuery() != null ? request.getQuery().trim() : "";
         Long playerId = request.getPlayerId();
         Long matchId = request.getMatchId();
 
-        if (matchId != null) {
+        String qLower = query.toLowerCase();
+
+        // Check if query is explicitly asking about a different team, player, or competition,
+        // which should take precedence over any stale matchId / playerId parameter
+        boolean isAskingTeamOrComp = qLower.contains("phong độ") ||
+                                     qLower.contains("giải đấu") ||
+                                     qLower.contains("bảng xếp hạng") ||
+                                     qLower.contains("cùng giải");
+
+        if (matchId != null && !isAskingTeamOrComp && (query.isBlank() || qLower.contains("trận") || qLower.contains("vs"))) {
             return analyzeMatchById(matchId, query);
         }
 
-        if (playerId != null) {
+        if (playerId != null && !isAskingTeamOrComp && (query.isBlank() || qLower.contains("cầu thủ") || qLower.contains("chỉ số"))) {
             return analyzePlayerById(playerId, query);
         }
 
         if (!query.isBlank()) {
-            // Check if query is asking about a specific match by two teams or match keywords
+            // 1. Check if query is asking about a specific match by two teams or match keywords
             AiAnalysisResponse matchAnalysis = tryFindMatchFromQuery(query);
             if (matchAnalysis != null) {
                 return matchAnalysis;
             }
 
-            // Check if user specifically requested a player
+            // 2. Check if query mentions a team or asks about competition/matches/overview
+            AiAnalysisResponse generalOrTeam = analyzeGeneralOrTeam(query);
+            if (generalOrTeam != null && !"DATA_UNAVAILABLE".equals(generalOrTeam.getIntent())) {
+                return generalOrTeam;
+            }
+
+            // 3. Check if user specifically requested a player
             String searchTerm = extractSearchTerm(query);
             if (!searchTerm.isBlank()) {
                 List<Player> matches = postgresRepository.getAllPlayers(searchTerm, null);
@@ -49,8 +75,19 @@ public class AiAnalystService {
                 }
             }
 
-            // Check if query mentions a team or asks about matches/overview
-            return analyzeGeneralOrTeam(query);
+            if (matchId != null) {
+                return analyzeMatchById(matchId, query);
+            }
+
+            return generalOrTeam != null ? generalOrTeam : unavailableResponse(query);
+        }
+
+        if (matchId != null) {
+            return analyzeMatchById(matchId, query);
+        }
+
+        if (playerId != null) {
+            return analyzePlayerById(playerId, query);
         }
 
         return unavailableResponse(query);
@@ -116,8 +153,9 @@ public class AiAnalystService {
             facts.add("Expected Goals (xG): " + m.getHomeTeamName() + " " + m.getHomeXg() + " - " + m.getAwayXg() + " " + m.getAwayTeamName());
         }
         if (m.getMatchDate() != null) {
-            facts.add("Thời gian: " + m.getMatchDate().toString().replace('T', ' '));
+            facts.add("Thời gian thi đấu: " + m.getMatchDate().toString().replace('T', ' '));
         }
+        facts.add("Giải đấu: " + m.getCompetitionName());
 
         StringBuilder answer = new StringBuilder();
         answer.append("### ⚽ Báo Cáo Phân Tích Chuyên Sâu: ").append(m.getHomeTeamName()).append(" vs ").append(m.getAwayTeamName()).append("\n\n");
@@ -188,12 +226,16 @@ public class AiAnalystService {
             "Xem các trận đấu cùng giải " + m.getCompetitionName()
         );
 
+        String llmAnswer = callOpenAiIfAvailable("Phân tích trận đấu giữa " + m.getHomeTeamName() + " và " + m.getAwayTeamName() + " (" + m.getHomeScore() + " - " + m.getAwayScore() + ")", facts);
+        String finalAnswer = (llmAnswer != null && !llmAnswer.isBlank()) ? llmAnswer : answer.toString();
+        String source = (llmAnswer != null && !llmAnswer.isBlank()) ? "OpenAI gpt-4o-mini + PitchPulse Lakehouse" : "PitchPulse Analytical Star-Schema";
+
         return new AiAnalysisResponse(
             "MATCH_ANALYSIS",
-            answer.toString(),
+            finalAnswer,
             facts,
             table,
-            "PitchPulse Analytical Star-Schema",
+            source,
             0.99,
             suggestions
         );
@@ -254,7 +296,8 @@ public class AiAnalystService {
 
         List<String> facts = List.of(
             teamName + ": " + wins + " Thắng, " + draws + " Hòa, " + losses + " Thua.",
-            "Tổng bàn thắng: " + goalsScored + ", bàn thua: " + goalsConceded
+            "Tổng bàn thắng: " + goalsScored + ", bàn thua: " + goalsConceded,
+            "Số trận theo dõi: " + teamMatches.size() + " trận."
         );
 
         List<String> suggestions = List.of(
@@ -263,13 +306,86 @@ public class AiAnalystService {
             "Lịch thi đấu hôm nay"
         );
 
+        String llmAnswer = callOpenAiIfAvailable("Phân tích phong độ toàn diện của đội bóng " + teamName, facts);
+        String finalAnswer = (llmAnswer != null && !llmAnswer.isBlank()) ? llmAnswer : sb.toString();
+        String source = (llmAnswer != null && !llmAnswer.isBlank()) ? "OpenAI gpt-4o-mini + PitchPulse Lakehouse" : "PitchPulse Analytical Lakehouse";
+
         return new AiAnalysisResponse(
             "TEAM_ANALYSIS",
-            sb.toString(),
+            finalAnswer,
             facts,
             table,
-            "PitchPulse Analytical Lakehouse",
+            source,
             0.98,
+            suggestions
+        );
+    }
+
+    private AiAnalysisResponse summarizeCompetitionMatches(String compKey, List<com.football.analytics.model.Match> allMatches) {
+        List<com.football.analytics.model.Match> compMatches = new ArrayList<>();
+        String properCompName = "";
+        for (com.football.analytics.model.Match m : allMatches) {
+            if (m.getCompetitionName() != null && m.getCompetitionName().toLowerCase().contains(compKey)) {
+                compMatches.add(m);
+                if (properCompName.isEmpty()) properCompName = m.getCompetitionName();
+            }
+        }
+
+        if (compMatches.isEmpty()) {
+            return summarizeRecentMatches(allMatches);
+        }
+
+        int finished = 0;
+        int live = 0;
+        int scheduled = 0;
+        for (com.football.analytics.model.Match m : compMatches) {
+            if ("FINISHED".equalsIgnoreCase(m.getStatus())) finished++;
+            else if ("LIVE".equalsIgnoreCase(m.getStatus())) live++;
+            else scheduled++;
+        }
+
+        Map<String, Object> table = new LinkedHashMap<>();
+        table.put("Giải đấu", properCompName);
+        table.put("Tổng số trận ghi nhận", compMatches.size());
+        table.put("Đã kết thúc", finished);
+        table.put("Sắp diễn ra", scheduled);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("### 🏆 Báo Cáo Giải Đấu: ").append(properCompName).append("\n\n");
+        sb.append("Tổng hợp các trận đấu đã đồng bộ trong cơ sở dữ liệu giải đấu **").append(properCompName).append("**:\n\n");
+        sb.append("- **Trạng thái:** `").append(finished).append("` trận đã kết thúc · `").append(scheduled).append("` trận sắp khởi tranh\n\n");
+        sb.append("#### Danh sách các trận đấu:\n");
+        int count = 0;
+        for (com.football.analytics.model.Match m : compMatches) {
+            if (count++ >= 8) break;
+            sb.append("- ").append(m.getHomeTeamName()).append(" `")
+              .append(m.getHomeScore() != null ? m.getHomeScore() : 0).append(" – ")
+              .append(m.getAwayScore() != null ? m.getAwayScore() : 0).append("` ")
+              .append(m.getAwayTeamName()).append(" *(").append(m.getStatus()).append(")*\n");
+        }
+
+        List<String> facts = List.of(
+            "Giải đấu " + properCompName + ": ghi nhận " + compMatches.size() + " trận đấu.",
+            "Bao gồm " + finished + " trận đã có tỷ số và " + scheduled + " trận lịch sắp tới."
+        );
+
+        List<String> suggestions = List.of(
+            "Phân tích phong độ các đội đầu bảng",
+            "Xem lịch thi đấu hôm nay",
+            "Top cầu thủ giải " + properCompName
+        );
+
+        String llmAnswer = callOpenAiIfAvailable("Tổng hợp diễn biến và kết quả giải đấu " + properCompName, facts);
+        String finalAnswer = (llmAnswer != null && !llmAnswer.isBlank()) ? llmAnswer : sb.toString();
+        String source = (llmAnswer != null && !llmAnswer.isBlank()) ? "OpenAI gpt-4o-mini + PitchPulse Lakehouse" : "PitchPulse Analytical Star-Schema";
+
+        return new AiAnalysisResponse(
+            "COMPETITION_ANALYSIS",
+            finalAnswer,
+            facts,
+            table,
+            source,
+            0.99,
             suggestions
         );
     }
@@ -303,7 +419,8 @@ public class AiAnalystService {
             if (count++ >= 6) break;
             sb.append("- **").append(m.getCompetitionName()).append("**: ")
               .append(m.getHomeTeamName()).append(" `")
-              .append(m.getHomeScore()).append(" – ").append(m.getAwayScore()).append("` ")
+              .append(m.getHomeScore() != null ? m.getHomeScore() : 0).append(" – ")
+              .append(m.getAwayScore() != null ? m.getAwayScore() : 0).append("` ")
               .append(m.getAwayTeamName()).append(" *(").append(m.getStatus()).append(")*\n");
         }
 
@@ -318,12 +435,16 @@ public class AiAnalystService {
             "Phong độ các đội bóng hàng đầu"
         );
 
+        String llmAnswer = callOpenAiIfAvailable("Tổng quan các trận đấu và giải đấu gần nhất", facts);
+        String finalAnswer = (llmAnswer != null && !llmAnswer.isBlank()) ? llmAnswer : sb.toString();
+        String source = (llmAnswer != null && !llmAnswer.isBlank()) ? "OpenAI gpt-4o-mini + PitchPulse Lakehouse" : "PitchPulse Analytical Lakehouse";
+
         return new AiAnalysisResponse(
             "SYSTEM_OVERVIEW",
-            sb.toString(),
+            finalAnswer,
             facts,
             table,
-            "PitchPulse Analytical Lakehouse",
+            source,
             0.98,
             suggestions
         );
@@ -334,7 +455,15 @@ public class AiAnalystService {
         String qLower = query.toLowerCase();
 
         if (matches != null) {
-            // Check if any team name is mentioned in the query
+            // 1. Check if user asks about a specific competition
+            String[] competitions = {"premier league", "la liga", "serie a", "bundesliga", "ligue 1", "champions league", "brasileiro"};
+            for (String comp : competitions) {
+                if (qLower.contains(comp)) {
+                    return summarizeCompetitionMatches(comp, matches);
+                }
+            }
+
+            // 2. Check if any team name is mentioned in the query
             for (com.football.analytics.model.Match m : matches) {
                 String cleanH = cleanTeamName(m.getHomeTeamName());
                 String cleanA = cleanTeamName(m.getAwayTeamName());
@@ -346,7 +475,7 @@ public class AiAnalystService {
                 }
             }
 
-            // Check if query is about recent matches or summary
+            // 3. Check if query is about recent matches or summary
             if (qLower.contains("trận") || qLower.contains("match") || qLower.contains("gần nhất") ||
                 qLower.contains("lịch") || qLower.contains("hôm nay") || qLower.contains("tổng quan") ||
                 qLower.contains("kết quả") || qLower.contains("giải")) {
@@ -435,12 +564,16 @@ public class AiAnalystService {
             "Phân tích phong độ đội " + player.getTeamName()
         );
 
+        String llmAnswer = callOpenAiIfAvailable("Phân tích chuyên sâu phong độ cầu thủ " + player.getName() + " (" + player.getTeamName() + ")", facts);
+        String finalAnswer = (llmAnswer != null && !llmAnswer.isBlank()) ? llmAnswer : answer;
+        String source = (llmAnswer != null && !llmAnswer.isBlank()) ? "OpenAI gpt-4o-mini + PitchPulse Lakehouse" : "PitchPulse Analytical Star-Schema";
+
         return new AiAnalysisResponse(
             "PLAYER_STATS",
-            answer,
+            finalAnswer,
             facts,
             table,
-            "PitchPulse Analytical Star-Schema",
+            source,
             0.99,
             suggestions
         );
@@ -463,7 +596,7 @@ public class AiAnalystService {
             "DATA_UNAVAILABLE",
             answer,
             facts,
-            null, // Do NOT leak raw status table to user
+            null,
             "PitchPulse Analytical Lakehouse",
             0.0,
             List.of("Xem các trận đấu hôm nay", "Tổng quan các giải đấu", "Phong độ các đội bóng hàng đầu")
@@ -480,5 +613,72 @@ public class AiAnalystService {
             return query.trim();
         }
         return cleaned;
+    }
+
+    /**
+     * Optional LLM Integration: When OPENAI_API_KEY is configured in environment,
+     * invoke OpenAI gpt-4o-mini to synthesize dynamic, eloquent analysis grounded strictly in DB facts.
+     */
+    private String callOpenAiIfAvailable(String prompt, List<String> facts) {
+        String apiKey = System.getenv("OPENAI_API_KEY");
+        if (apiKey == null || apiKey.isBlank() || apiKey.startsWith("sk-...")) {
+            apiKey = System.getenv("AI_API_KEY");
+        }
+        if (apiKey == null || apiKey.isBlank() || apiKey.startsWith("sk-...")) {
+            return null; // LLM not configured, fall back to rich analytical engine
+        }
+
+        try {
+            String model = System.getenv("AI_MODEL");
+            if (model == null || model.isBlank()) model = "gpt-4o-mini";
+
+            StringBuilder factsStr = new StringBuilder();
+            if (facts != null) {
+                for (String f : facts) {
+                    factsStr.append("- ").append(f).append("\n");
+                }
+            }
+
+            String systemPrompt = "Bạn là Trợ lý AI Phân tích Bóng đá Chuyên sâu PitchPulse. "
+                + "Hãy trả lời câu hỏi của người dùng bằng tiếng Việt lưu loát, giàu chuyên môn chiến thuật và tự nhiên. "
+                + "QUY TẮC BẮT BUỘC: Bạn CHỈ ĐƯỢC sử dụng các số liệu thực tế được cung cấp dưới đây. Tuyệt đối không bịa đặt số liệu hoặc kết quả.\n\n"
+                + "Dữ liệu xác thực từ kho dữ liệu:\n" + factsStr;
+
+            Map<String, Object> reqMap = new HashMap<>();
+            reqMap.put("model", model);
+            reqMap.put("temperature", 0.3);
+            reqMap.put("max_tokens", 800);
+
+            List<Map<String, String>> msgList = new ArrayList<>();
+            msgList.add(Map.of("role", "system", "content", systemPrompt));
+            msgList.add(Map.of("role", "user", "content", prompt));
+            reqMap.put("messages", msgList);
+
+            String requestBody = objectMapper.writeValueAsString(reqMap);
+
+            HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(4))
+                .build();
+
+            HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.openai.com/v1/chat/completions"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                .timeout(Duration.ofSeconds(7))
+                .build();
+
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200 && resp.body() != null) {
+                JsonNode root = objectMapper.readTree(resp.body());
+                JsonNode contentNode = root.path("choices").path(0).path("message").path("content");
+                if (!contentNode.isMissingNode() && !contentNode.asText().isBlank()) {
+                    return contentNode.asText();
+                }
+            }
+        } catch (Exception e) {
+            // Fail gracefully on timeout or network error to deterministic engine
+        }
+        return null;
     }
 }

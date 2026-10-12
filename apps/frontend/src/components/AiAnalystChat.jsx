@@ -38,9 +38,21 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
     scrollToBottom();
   }, [messages, loading]);
 
-  const handleSend = async (queryText, matchId = null, playerId = null) => {
+  // Consume initial IDs only on the first query, then clear them
+  const initialConsumedRef = useRef(false);
+
+  const handleSend = async (queryText, explicitMatchId = null, explicitPlayerId = null) => {
     const textToSend = queryText || inputQuery;
     if (!textToSend.trim()) return;
+
+    let targetMatchId = explicitMatchId;
+    let targetPlayerId = explicitPlayerId;
+
+    if (!initialConsumedRef.current) {
+      if (targetMatchId === null && initialMatchId) targetMatchId = initialMatchId;
+      if (targetPlayerId === null && initialPlayerId) targetPlayerId = initialPlayerId;
+      initialConsumedRef.current = true;
+    }
 
     const userMsg = { role: 'user', content: textToSend };
     setMessages((prev) => [...prev, userMsg]);
@@ -50,8 +62,8 @@ export default function AiAnalystChat({ initialQuery, initialMatchId, initialPla
     try {
       const payload = {
         query: textToSend,
-        match_id: matchId || initialMatchId || null,
-        player_id: playerId || initialPlayerId || null,
+        match_id: targetMatchId || null,
+        player_id: targetPlayerId || null,
       };
       const res = await api.queryAiAnalyst(payload);
       const aiData = res.data;
